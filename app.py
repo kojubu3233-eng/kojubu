@@ -14,25 +14,28 @@ def safe_sorted(iterable):
 # ─────────────────────────────────────────────
 st.set_page_config(page_title="연간 매출 분석 대시보드", layout="wide", initial_sidebar_state="expanded")
 st.title("📊 연간 매출 분석 대시보드")
-st.markdown("매월 엑셀 데이터를 업로드하여 **중점 영업 전략**을 도출하세요.")
+st.markdown("💡 **월 1회 깃허브에 업데이트된 엑셀 데이터**를 기반으로 중점 영업 전략을 도출하세요.")
 st.markdown("---")
 
-# ─────────────────────────────────────────────
-# 사이드바 파일 업로드
-# ─────────────────────────────────────────────
-st.sidebar.header("📁 데이터 업로드")
-uploaded_file = st.sidebar.file_uploader("월 매출 파일 (엑셀 또는 CSV)", type=['xlsx', 'xls', 'csv'])
+st.sidebar.header("📁 데이터 연동 상태")
+st.sidebar.success("✅ 깃허브 data.xlsx 연동 중")
 
-if uploaded_file:
+# ─────────────────────────────────────────────
+# 데이터 로드 (깃허브 연동 - data.xlsx 직접 읽기)
+# ─────────────────────────────────────────────
+@st.cache_data(ttl=3600)
+def load_data():
     try:
-        # ── 파일 로드 ──
-        if uploaded_file.name.endswith('.csv'):
-            try:
-                df = pd.read_csv(uploaded_file, encoding='cp949')
-            except UnicodeDecodeError:
-                df = pd.read_csv(uploaded_file, encoding='utf-8')
-        else:
-            df = pd.read_excel(uploaded_file, header=0)
+        return pd.read_excel("data.xlsx", engine='openpyxl')
+    except Exception as e:
+        st.error(f"⚠️ 'data.xlsx' 파일을 읽을 수 없습니다: {e}")
+        return None
+
+raw_df = load_data()
+
+if raw_df is not None:
+    try:
+        df = raw_df.copy()
 
         # ── 컬럼 정규화 ──
         if len(df.columns) >= 7:
@@ -69,12 +72,8 @@ if uploaded_file:
         df['월'] = df['납품일'].apply(extract_month_safely).astype(int)
         df = df[df['월'].between(1, 12)].sort_values('월')
 
-        # ── 부대별 월별 매출 피벗 (탭2 분석용 사전 계산) ──
-        unit_monthly = df.groupby(['부대명', '월'])['매출'].sum().reset_index()
-        months = sorted(df['월'].unique())
-
-        # 전월 대비 증감율 계산
-        unit_pivot_raw = unit_monthly.pivot_table(index='부대명', columns='월', values='매출', fill_value=0)
+        # ── 부대별 월별 매출 피벗 (탭2 분석용) ──
+        unit_pivot_raw = df.groupby(['부대명', '월'])['매출'].sum().unstack(fill_value=0)
         unit_pivot_raw.columns = [int(c) for c in unit_pivot_raw.columns]
 
         # ══════════════════════════════════════════
@@ -83,7 +82,7 @@ if uploaded_file:
         tab1, tab2 = st.tabs(["📊 매출 현황 분석", "🎯 부대별 영업 전략 인사이트"])
 
         # ══════════════════════════════════════════
-        # TAB 1 : 기존 대시보드
+        # TAB 1 : 매출 현황 분석 (기존 대시보드)
         # ══════════════════════════════════════════
         with tab1:
             st.header("1. 올해 전체 매출 현황 및 요약")
@@ -249,7 +248,6 @@ if uploaded_file:
         with tab2:
             st.header("🎯 부대별 영업 전략 인사이트")
 
-            # ── 분석 기준 월 선택 ──
             latest_month = int(df['월'].max())
             selected_base_month = st.selectbox(
                 "📅 분석 기준 월 선택 (전월 대비 비교)",
@@ -259,25 +257,23 @@ if uploaded_file:
             )
             prev_month = selected_base_month - 1
 
-            # 부대별 기준월/전월 매출
             cur_sales  = unit_pivot_raw.get(selected_base_month, pd.Series(dtype=float))
             prev_sales = unit_pivot_raw.get(prev_month, pd.Series(dtype=float))
 
             unit_compare = pd.DataFrame({
                 '부대명': unit_pivot_raw.index,
-                '전월매출': [prev_sales.get(u, 0) for u in unit_pivot_raw.index],
-                '당월매출': [cur_sales.get(u, 0) for u in unit_pivot_raw.index],
+                '전월매출': [prev_sales.get(u, 0) if hasattr(prev_sales, 'get') else 0 for u in unit_pivot_raw.index],
+                '당월매출': [cur_sales.get(u, 0)  if hasattr(cur_sales,  'get') else 0 for u in unit_pivot_raw.index],
             })
             unit_compare['증감액'] = unit_compare['당월매출'] - unit_compare['전월매출']
             unit_compare['증감율(%)'] = unit_compare.apply(
                 lambda r: round((r['증감액'] / r['전월매출']) * 100, 1) if r['전월매출'] > 0 else 0, axis=1)
             unit_compare = unit_compare[unit_compare['당월매출'] > 0].reset_index(drop=True)
 
-            # 연평균 매출 계산 (전체 기간)
+            # 연평균 매출 등급
             unit_avg = df.groupby('부대명')['매출'].sum() / df['월'].nunique()
-            total_avg = unit_avg.mean()
-            top30  = unit_avg.quantile(0.70)
-            bot30  = unit_avg.quantile(0.30)
+            top30 = unit_avg.quantile(0.70)
+            bot30 = unit_avg.quantile(0.30)
 
             def grade(avg):
                 if avg >= top30: return '🔴 고매출'
@@ -287,7 +283,6 @@ if uploaded_file:
             unit_compare['연평균매출'] = unit_compare['부대명'].map(unit_avg)
             unit_compare['매출등급'] = unit_compare['연평균매출'].apply(grade)
 
-            # 급증/급감 분류 (±20%)
             def surge_type(pct, prev):
                 if prev == 0: return '신규'
                 if pct >= 20: return '📈 급증'
@@ -297,80 +292,61 @@ if uploaded_file:
             unit_compare['변동유형'] = unit_compare.apply(
                 lambda r: surge_type(r['증감율(%)'], r['전월매출']), axis=1)
 
-            # 키워드 검색 공통 함수
             def keyword_filter(df_in, key):
                 if key.strip():
                     return df_in[df_in['부대명'].str.contains(key.strip(), na=False)]
                 return df_in
 
-            # ────────────────────────────────
-            # 섹션 1: 매출 증가 / 감소 부대
-            # ────────────────────────────────
+            # ── 섹션 1: 증가/감소 부대 ──
             st.markdown("---")
             st.subheader(f"📈 매출 증가 / 감소 부대 ({prev_month}월 → {selected_base_month}월)")
 
-            col_a, col_b, col_c = st.columns([1, 1, 2])
-            with col_a:
-                filter_trend = st.selectbox("필터", ["전체", "증가", "감소"], key="trend_filter")
-            with col_b:
-                kw_trend = st.text_input("🔍 부대명 검색", key="kw_trend", placeholder="부대명 입력...")
-            with col_c:
-                st.markdown("<br>", unsafe_allow_html=True)
+            col_a, col_b = st.columns([1, 2])
+            with col_a: filter_trend = st.selectbox("필터", ["전체", "증가", "감소"], key="trend_filter")
+            with col_b: kw_trend = st.text_input("🔍 부대명 검색", key="kw_trend", placeholder="부대명 입력...")
 
             trend_df = unit_compare.copy()
             if filter_trend == "증가": trend_df = trend_df[trend_df['증감액'] > 0]
             elif filter_trend == "감소": trend_df = trend_df[trend_df['증감액'] < 0]
-            trend_df = keyword_filter(trend_df, kw_trend)
-            trend_df = trend_df.sort_values('증감율(%)', ascending=False)
+            trend_df = keyword_filter(trend_df, kw_trend).sort_values('증감율(%)', ascending=False)
 
-            # 증감 요약 지표
-            inc_count = len(trend_df[trend_df['증감액'] > 0])
-            dec_count = len(trend_df[trend_df['증감액'] < 0])
             m1, m2, m3 = st.columns(3)
-            m1.metric("📈 증가 부대 수", f"{inc_count}개")
-            m2.metric("📉 감소 부대 수", f"{dec_count}개")
+            m1.metric("📈 증가 부대 수", f"{len(trend_df[trend_df['증감액'] > 0])}개")
+            m2.metric("📉 감소 부대 수", f"{len(trend_df[trend_df['증감액'] < 0])}개")
             m3.metric("📊 분석 대상", f"{len(trend_df)}개")
 
             if not trend_df.empty:
-                fig_trend = px.bar(
-                    trend_df.head(30), x='부대명', y='증감율(%)',
+                fig_trend = px.bar(trend_df.head(30), x='부대명', y='증감율(%)',
                     color='증감율(%)',
                     color_continuous_scale=['#0275d8', '#cccccc', '#d9534f'],
                     color_continuous_midpoint=0,
                     title=f"{prev_month}월 → {selected_base_month}월 부대별 매출 증감율 (상위 30개)",
-                    text=trend_df.head(30)['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
-                )
+                    text=trend_df.head(30)['증감율(%)'].apply(lambda x: f"{x:+.1f}%"))
                 fig_trend.update_traces(textposition='outside')
                 fig_trend.update_layout(height=420, coloraxis_showscale=False)
                 fig_trend.update_xaxes(tickangle=-40)
                 st.plotly_chart(fig_trend, use_container_width=True)
 
                 disp = trend_df[['부대명', '전월매출', '당월매출', '증감액', '증감율(%)']].copy()
-                disp['전월매출'] = disp['전월매출'].apply(lambda x: f"{x:,.0f}")
-                disp['당월매출'] = disp['당월매출'].apply(lambda x: f"{x:,.0f}")
-                disp['증감액']   = disp['증감액'].apply(lambda x: f"{x:+,.0f}")
+                for c in ['전월매출', '당월매출', '증감액']:
+                    disp[c] = disp[c].apply(lambda x: f"{x:+,.0f}" if c == '증감액' else f"{x:,.0f}")
                 disp['증감율(%)'] = disp['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
                 st.dataframe(disp, use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
-            # ────────────────────────────────
-            # 섹션 2: 고/중/저 매출 부대
-            # ────────────────────────────────
+            # ── 섹션 2: 고/중/저 매출 부대 ──
             st.markdown("---")
             st.subheader("🏅 연평균 기준 고/중/저 매출 부대")
             st.caption("연평균 매출 기준 상위 30% = 고매출, 중위 40% = 중매출, 하위 30% = 저매출")
 
             col_a2, col_b2 = st.columns([1, 2])
-            with col_a2:
-                filter_grade = st.selectbox("필터", ["전체", "🔴 고매출", "🟡 중매출", "🔵 저매출"], key="grade_filter")
-            with col_b2:
-                kw_grade = st.text_input("🔍 부대명 검색", key="kw_grade", placeholder="부대명 입력...")
+            with col_a2: filter_grade = st.selectbox("필터", ["전체", "🔴 고매출", "🟡 중매출", "🔵 저매출"], key="grade_filter")
+            with col_b2: kw_grade = st.text_input("🔍 부대명 검색", key="kw_grade", placeholder="부대명 입력...")
 
             grade_df = unit_compare.copy()
             if filter_grade != "전체": grade_df = grade_df[grade_df['매출등급'] == filter_grade]
-            grade_df = keyword_filter(grade_df, kw_grade)
-            grade_df = grade_df.sort_values('연평균매출', ascending=False)
+            grade_df = keyword_filter(grade_df, kw_grade).sort_values('연평균매출', ascending=False)
 
             g1, g2, g3 = st.columns(3)
             g1.metric("🔴 고매출 부대", f"{len(unit_compare[unit_compare['매출등급']=='🔴 고매출'])}개")
@@ -378,13 +354,11 @@ if uploaded_file:
             g3.metric("🔵 저매출 부대", f"{len(unit_compare[unit_compare['매출등급']=='🔵 저매출'])}개")
 
             if not grade_df.empty:
-                fig_grade = px.bar(
-                    grade_df.head(30), x='부대명', y='연평균매출',
+                fig_grade = px.bar(grade_df.head(30), x='부대명', y='연평균매출',
                     color='매출등급',
                     color_discrete_map={'🔴 고매출': '#d9534f', '🟡 중매출': '#f0ad4e', '🔵 저매출': '#0275d8'},
                     title="부대별 연평균 매출 (상위 30개)",
-                    text=grade_df.head(30)['연평균매출'].apply(lambda x: f"{x:,.0f}원")
-                )
+                    text=grade_df.head(30)['연평균매출'].apply(lambda x: f"{x:,.0f}원"))
                 fig_grade.update_traces(textposition='outside')
                 fig_grade.update_layout(height=420)
                 fig_grade.update_xaxes(tickangle=-40)
@@ -397,22 +371,17 @@ if uploaded_file:
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
-            # ────────────────────────────────
-            # 섹션 3: 급증 / 급감 부대
-            # ────────────────────────────────
+            # ── 섹션 3: 급증/급감 부대 ──
             st.markdown("---")
             st.subheader(f"⚡ 매출 급증 / 급감 부대 (전월 대비 ±20% 이상)")
 
             col_a3, col_b3 = st.columns([1, 2])
-            with col_a3:
-                filter_surge = st.selectbox("필터", ["전체", "📈 급증", "📉 급감", "➡️ 유지", "신규"], key="surge_filter")
-            with col_b3:
-                kw_surge = st.text_input("🔍 부대명 검색", key="kw_surge", placeholder="부대명 입력...")
+            with col_a3: filter_surge = st.selectbox("필터", ["전체", "📈 급증", "📉 급감", "➡️ 유지", "신규"], key="surge_filter")
+            with col_b3: kw_surge = st.text_input("🔍 부대명 검색", key="kw_surge", placeholder="부대명 입력...")
 
             surge_df = unit_compare.copy()
             if filter_surge != "전체": surge_df = surge_df[surge_df['변동유형'] == filter_surge]
-            surge_df = keyword_filter(surge_df, kw_surge)
-            surge_df = surge_df.sort_values('증감율(%)', ascending=False)
+            surge_df = keyword_filter(surge_df, kw_surge).sort_values('증감율(%)', ascending=False)
 
             s1, s2, s3 = st.columns(3)
             s1.metric("📈 급증 부대", f"{len(unit_compare[unit_compare['변동유형']=='📈 급증'])}개")
@@ -422,38 +391,28 @@ if uploaded_file:
             if not surge_df.empty:
                 surge_chart = surge_df[surge_df['변동유형'].isin(['📈 급증', '📉 급감'])].head(30)
                 if not surge_chart.empty:
-                    fig_surge = px.bar(
-                        surge_chart, x='부대명', y='증감율(%)',
+                    fig_surge = px.bar(surge_chart, x='부대명', y='증감율(%)',
                         color='변동유형',
                         color_discrete_map={'📈 급증': '#d9534f', '📉 급감': '#0275d8'},
                         title="급증/급감 부대 증감율",
-                        text=surge_chart['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
-                    )
+                        text=surge_chart['증감율(%)'].apply(lambda x: f"{x:+.1f}%"))
                     fig_surge.update_traces(textposition='outside')
                     fig_surge.update_layout(height=420)
                     fig_surge.update_xaxes(tickangle=-40)
                     st.plotly_chart(fig_surge, use_container_width=True)
 
                 disp3 = surge_df[['부대명', '변동유형', '전월매출', '당월매출', '증감율(%)']].copy()
-                disp3['전월매출']   = disp3['전월매출'].apply(lambda x: f"{x:,.0f}")
-                disp3['당월매출']   = disp3['당월매출'].apply(lambda x: f"{x:,.0f}")
+                disp3['전월매출']  = disp3['전월매출'].apply(lambda x: f"{x:,.0f}")
+                disp3['당월매출']  = disp3['당월매출'].apply(lambda x: f"{x:,.0f}")
                 disp3['증감율(%)'] = disp3['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
                 st.dataframe(disp3, use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
-            # ────────────────────────────────
-            # 섹션 4: 다음 월 영업 집중 부대 추천
-            # ────────────────────────────────
+            # ── 섹션 4: 다음 달 영업 집중 부대 추천 ──
             st.markdown("---")
             st.subheader(f"🚀 {selected_base_month + 1}월 영업 활동 집중 부대 추천")
             st.caption("아래 기준으로 시스템이 자동 판단한 추천 결과입니다.")
-
-            # 추천 로직
-            # ① 급감 부대 중 고/중매출 → 즉시 관리 필요
-            # ② 저매출 + 증가 추세 → 성장 가능성 부대
-            # ③ 급증 부대 → 모멘텀 유지 필요
-            # ④ 신규 부대 → 관계 구축 필요
 
             rec1 = unit_compare[
                 (unit_compare['변동유형'] == '📉 급감') &
@@ -490,10 +449,10 @@ if uploaded_file:
                 priority_colors = {1: '#d9534f', 2: '#5cb85c', 3: '#f0ad4e', 4: '#5bc0de'}
                 priority_labels = {1: '🔥 즉시 대응', 2: '🌱 성장 관리', 3: '💪 모멘텀 유지', 4: '📌 꾸준 저매출 공략'}
                 priority_desc = {
-                    1: f"전월 대비 매출이 20% 이상 급감했지만 연평균 기준 고/중매출 부대입니다. 기존 거래 관계가 있는 핵심 부대이므로 이탈 방지가 최우선입니다. 즉시 방문하여 감소 원인(경쟁사 진입, 담당자 교체, 불만 사항 등)을 파악하세요.",
-                    2: f"연평균 기준 저매출이지만 이번 달 20% 이상 급증했습니다. 아직 절대 매출은 낮지만 성장 신호가 포착된 부대입니다. 지금 집중 관리하면 중매출 이상으로 끌어올릴 수 있는 적기입니다.",
-                    3: f"이미 고/중매출을 유지하면서 이번 달 추가로 20% 이상 급증했습니다. 현재 영업 모멘텀이 가장 강한 부대입니다. 추가 품목 제안이나 납품 물량 확대를 적극 제안하세요.",
-                    4: f"급증/급감 없이 꾸준히 저매출을 유지하고 있는 부대입니다. 거래는 이어지고 있으나 잠재 수요가 충분히 발굴되지 않은 상태입니다. 품목 다양화 제안이나 담당자 관계 강화로 매출 확대를 노려볼 수 있습니다.",
+                    1: "전월 대비 매출이 20% 이상 급감했지만 연평균 기준 고/중매출 부대입니다. 기존 거래 관계가 있는 핵심 부대이므로 이탈 방지가 최우선입니다. 즉시 방문하여 감소 원인(경쟁사 진입, 담당자 교체, 불만 사항 등)을 파악하세요.",
+                    2: "연평균 기준 저매출이지만 이번 달 20% 이상 급증했습니다. 아직 절대 매출은 낮지만 성장 신호가 포착된 부대입니다. 지금 집중 관리하면 중매출 이상으로 끌어올릴 수 있는 적기입니다.",
+                    3: "이미 고/중매출을 유지하면서 이번 달 추가로 20% 이상 급증했습니다. 현재 영업 모멘텀이 가장 강한 부대입니다. 추가 품목 제안이나 납품 물량 확대를 적극 제안하세요.",
+                    4: "급증/급감 없이 꾸준히 저매출을 유지하고 있는 부대입니다. 거래는 이어지고 있으나 잠재 수요가 충분히 발굴되지 않은 상태입니다. 품목 다양화 제안이나 담당자 관계 강화로 매출 확대를 노려볼 수 있습니다.",
                 }
 
                 for priority in [1, 2, 3, 4]:
@@ -502,13 +461,12 @@ if uploaded_file:
                     color = priority_colors[priority]
                     label = priority_labels[priority]
                     desc  = priority_desc[priority]
-
                     st.markdown(f"""
-                    <div style="border-left: 5px solid {color}; padding: 12px 16px; margin-bottom: 4px;
-                                background-color: rgba(255,255,255,0.03); border-radius: 4px;">
-                        <strong style="color:{color}; font-size:15px;">{label}</strong>
-                        &nbsp;&nbsp;<span style="color:#aaa; font-size:13px;">({len(grp)}개 부대)</span>
-                        <p style="margin: 8px 0 0 0; font-size:13px; color:#ccc; line-height:1.6;">
+                    <div style="border-left:5px solid {color};padding:12px 16px;margin-bottom:4px;
+                                background-color:rgba(255,255,255,0.03);border-radius:4px;">
+                        <strong style="color:{color};font-size:15px;">{label}</strong>
+                        &nbsp;&nbsp;<span style="color:#aaa;font-size:13px;">({len(grp)}개 부대)</span>
+                        <p style="margin:8px 0 0 0;font-size:13px;color:#ccc;line-height:1.6;">
                             💡 <b>추천 근거:</b> {desc}
                         </p>
                     </div>""", unsafe_allow_html=True)
@@ -519,11 +477,10 @@ if uploaded_file:
                     st.dataframe(disp_rec, use_container_width=True)
                     st.markdown("<br>", unsafe_allow_html=True)
 
-                # 다운로드
-                rec_down = rec_all[['부대명', '매출등급', '변동유형', '당월매출', '증감율(%)', '추천사유', '우선순위']].copy()
                 st.download_button(
                     label="📥 추천 부대 리스트 다운로드",
-                    data=rec_down.to_csv(index=False).encode('utf-8-sig'),
+                    data=rec_all[['부대명', '매출등급', '변동유형', '당월매출', '증감율(%)', '추천사유', '우선순위']]
+                        .to_csv(index=False).encode('utf-8-sig'),
                     file_name=f'{selected_base_month+1}월_영업집중부대_추천.csv',
                     mime='text/csv'
                 )
