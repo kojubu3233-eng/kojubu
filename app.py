@@ -539,27 +539,27 @@ if raw_df is not None:
                 ].copy()
                 pattern4 = pattern4.sort_values('평균매출', ascending=False)
 
-                # 최근 4개월 매출 컬럼 (표시용)
-                recent_4 = months_up_to_base[-4:] if len(months_up_to_base) >= 4 else months_up_to_base
-                recent_col_names = [f"{m}월매출" for m in recent_4]
+                # 1월~기준월 전체 매출 컬럼 (표시용)
+                all_col_months = months_up_to_base
+                all_col_names = [f"{m}월매출" for m in all_col_months]
 
-                def attach_recent_months(d):
+                def attach_all_months(d):
                     d = d.copy()
-                    for m, col in zip(recent_4, recent_col_names):
+                    for m, col in zip(all_col_months, all_col_names):
                         d[col] = d['부대명'].apply(
                             lambda u: unit_pivot_raw.loc[u, m] if u in unit_pivot_raw.index and m in unit_pivot_raw.columns else 0
                         )
                     return d
 
-                pattern1 = attach_recent_months(pattern1)
-                pattern2 = attach_recent_months(pattern2)
-                pattern3 = attach_recent_months(pattern3)
-                pattern4 = attach_recent_months(pattern4)
+                pattern1 = attach_all_months(pattern1)
+                pattern2 = attach_all_months(pattern2)
+                pattern3 = attach_all_months(pattern3)
+                pattern4 = attach_all_months(pattern4)
 
                 # ─────────────────────────────────────
                 # 패턴별 출력 공통 함수
                 # ─────────────────────────────────────
-                def render_pattern_block(title, color, desc, pattern_df, metric_col, metric_label, metric_fmt):
+                def render_pattern_block(title, color, desc, pattern_df, metric_col=None, metric_label=None, metric_fmt=None):
                     st.markdown(f"""
                     <div style="border-left:5px solid {color};padding:12px 16px;margin-bottom:4px;
                                 background-color:rgba(255,255,255,0.03);border-radius:4px;">
@@ -575,33 +575,47 @@ if raw_df is not None:
                         st.markdown("<br>", unsafe_allow_html=True)
                         return
 
-                    disp_cols = ['부대명', '매출등급', '평균매출'] + recent_col_names + [metric_col]
+                    # metric_col이 없으면 부대명+매출등급+1월~기준월 매출만 표시 (지표 컬럼 없음)
+                    if metric_col is None:
+                        disp_cols = ['부대명', '매출등급'] + all_col_names
+                        disp = pattern_df[disp_cols].head(15).copy()
+                        for col in all_col_names:
+                            disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
+                        st.dataframe(disp, use_container_width=True)
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        return
+
+                    # metric_col이 있으면 기존처럼 판단지표 컬럼도 함께 표시
+                    disp_cols = ['부대명', '매출등급'] + all_col_names + [metric_col]
                     disp = pattern_df[disp_cols].head(15).copy()
-                    disp['평균매출'] = disp['평균매출'].apply(lambda x: f"{x:,.0f}")
-                    for col in recent_col_names:
+
+                    metric_formatted = disp[metric_col].apply(metric_fmt)
+
+                    for col in all_col_names:
                         disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
-                    disp[metric_col] = disp[metric_col].apply(metric_fmt)
+
+                    disp[metric_col] = metric_formatted
                     disp = disp.rename(columns={metric_col: metric_label})
                     st.dataframe(disp, use_container_width=True)
                     st.markdown("<br>", unsafe_allow_html=True)
 
-                # ── ① 지속 하락 부대 ──
+                # ── ① 지속 하락 부대 ── (지표 컬럼 없이 1월~기준월 매출만)
                 render_pattern_block(
                     "📉 지속 하락 부대",
                     "#d9534f",
                     f"1월~{selected_base_month}월 전체 매출 추세선(회귀분석)이 일관되게 하락하는 부대입니다. 단발성 감소가 아닌 구조적 이탈 신호이므로 우선 방문하여 원인을 파악하세요.",
-                    pattern1, '추세기울기_pct', '추세(월평균대비%)', lambda x: f"{x:+.1f}%/월"
+                    pattern1
                 )
 
-                # ── ② 등락폭 큰 부대 ──
+                # ── ② 등락폭 큰 부대 ── (지표 컬럼 없이 1월~기준월 매출만)
                 render_pattern_block(
                     "🌊 매출 등락폭이 큰 부대",
                     "#f0ad4e",
                     f"월별 매출 변동성(변동계수)이 상위 25%에 해당하는 부대입니다. 발주가 불규칙하므로 정기 발주 전환을 제안하거나, 변동 원인(계절성/행사성 수요 등)을 파악해 대응 전략을 세우세요.",
-                    pattern2, '변동계수', '변동계수', lambda x: f"{x:.2f}"
+                    pattern2
                 )
 
-                # ── ③ 이번달 급감 부대 ──
+                # ── ③ 이번달 급감 부대 ── (현행 유지: 괴리율 지표 컬럼 표시)
                 render_pattern_block(
                     "⚠️ 평소엔 안정적이었는데 이번 달 급감한 부대",
                     "#e8853d",
@@ -609,13 +623,15 @@ if raw_df is not None:
                     pattern3, '기준월괴리율', f'{selected_base_month}월 괴리율', lambda x: f"{x:+.1f}%"
                 )
 
-                # ── ④ 꾸준한 저매출 부대 ──
+                # ── ④ 꾸준한 저매출 부대 ── (지표 컬럼 없이 1월~기준월 매출만)
                 render_pattern_block(
                     "📌 꾸준히 저매출을 유지 중인 부대",
                     "#5bc0de",
                     "월별 매출 변동 없이 꾸준히 낮은 매출 수준을 유지하고 있는 부대입니다. 거래는 안정적이나 규모가 작으므로, 품목 다양화 제안이나 추가 수요 발굴을 통해 매출 확대 가능성을 점검하세요.",
-                    pattern4, '평균매출', '월평균매출', lambda x: f"{x:,.0f}원"
+                    pattern4
                 )
+
+
 
                 # ─────────────────────────────────────
                 # 통합 다운로드
@@ -626,7 +642,7 @@ if raw_df is not None:
                 p3d = pattern3.copy(); p3d['분류'] = '이번달 급감'
                 p4d = pattern4.copy(); p4d['분류'] = '꾸준 저매출'
 
-                dl_base_cols = ['부대명', '매출등급', '평균매출'] + recent_col_names + ['분류']
+                dl_base_cols = ['부대명', '매출등급', '평균매출'] + all_col_names + ['분류']
                 dl_all = pd.concat([
                     p1d[dl_base_cols] if not p1d.empty else pd.DataFrame(columns=dl_base_cols),
                     p2d[dl_base_cols] if not p2d.empty else pd.DataFrame(columns=dl_base_cols),
