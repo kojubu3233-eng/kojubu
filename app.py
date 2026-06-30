@@ -80,9 +80,7 @@ if raw_df is not None:
             elif r > 0.33: return '🟡 중매출'
             else: return '🔵 저매출'
 
-        # 백만 단위 포맷 헬퍼
         def fmt_m(val):
-            """백만 단위, 소수점 1자리"""
             return f"{val/1_000_000:+.1f}M" if val != 0 else "0M"
 
         def fmt_m_abs(val):
@@ -276,14 +274,15 @@ if raw_df is not None:
             unit_compare['매출등급']  = unit_compare['부대명'].map(grade_by_rank)
             unit_compare = unit_compare[unit_compare['당월매출'] > 0].reset_index(drop=True)
 
-            # 추세 판단: 최근 3개월 평균 vs 전체 월평균
             all_months_sorted = sorted(unit_pivot_raw.columns.tolist())
+            months_up_to_base = [m for m in all_months_sorted if m <= selected_base_month]
 
+            # 추세 판단: 최근 3개월 평균 vs 전체 월평균 (STEP3/표시용으로 유지)
             def calc_trend(unit_name):
                 if unit_name not in unit_pivot_raw.index:
                     return '안정', 0.0
                 row = unit_pivot_raw.loc[unit_name]
-                recent_months = [m for m in all_months_sorted if m <= selected_base_month][-3:]
+                recent_months = months_up_to_base[-3:]
                 recent_avg = row[recent_months].mean() if recent_months else 0
                 overall_avg = unit_avg.get(unit_name, 0)
                 if overall_avg == 0:
@@ -300,9 +299,7 @@ if raw_df is not None:
                 lambda u: pd.Series(calc_trend(u))
             )
 
-            # 최근 월별 매출 딕셔너리 (추천 테이블용)
             def get_recent_month_sales(unit_name, base_month, n=4):
-                """기준월 포함 최근 n개월 매출 dict"""
                 if unit_name not in unit_pivot_raw.index:
                     return {}
                 row = unit_pivot_raw.loc[unit_name]
@@ -443,110 +440,209 @@ if raw_df is not None:
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
-            # ── STEP 4: 영업 추천 (최근 월별 매출 포함) ──
+            # ══════════════════════════════════════════
+            # STEP 4 : 영업 활동 집중 부대 추천 (4가지 핵심 패턴 기반, 전면 재설계)
+            # ══════════════════════════════════════════
             st.markdown("---")
             st.subheader(f"🚀 STEP 4 · {selected_base_month + 1}월 영업 활동 집중 부대 추천")
             st.caption(
-                "전체 월 추세(최근 3개월 평균 vs 전체 월평균 ±20%) + 연매출 등급 종합 판단. "
-                "각 부대의 **최근 4개월 실제 매출**을 함께 표시해 추천 근거를 명확히 확인하세요."
+                f"1월~{selected_base_month}월 전체 추세를 종합 분석하여 4가지 패턴으로 부대를 분류합니다. "
+                "단일 월의 등락율이 아닌 **전체 기간의 매출 흐름**을 근거로 판단하므로 일시적 변동에 흔들리지 않습니다."
             )
 
-            # 최근 4개월 컬럼명 결정
-            recent_4 = [m for m in all_months_sorted if m <= selected_base_month][-4:]
-            recent_col_names = [f"{m}월매출" for m in recent_4]
+            n_months = len(months_up_to_base)
 
-            def build_rec_df(mask_df, reason, priority):
-                d = mask_df.copy()
-                d['추천사유'] = reason
-                d['우선순위'] = priority
-                # 최근 4개월 매출 컬럼 추가
-                for m, col in zip(recent_4, recent_col_names):
-                    d[col] = d['부대명'].apply(
-                        lambda u: unit_pivot_raw.loc[u, m] if u in unit_pivot_raw.index and m in unit_pivot_raw.columns else 0
-                    )
-                return d
+            if n_months < 3:
+                st.warning("⚠️ 추세 분석을 위해서는 최소 3개월 이상의 데이터가 필요합니다. 현재 분석 가능한 월: " + f"{n_months}개월")
+            else:
+                # ─────────────────────────────────────
+                # 부대별 1~기준월 전체 매출 시계열 + 통계치 계산
+                # ─────────────────────────────────────
+                def get_unit_series(unit_name):
+                    """1월~기준월까지 부대의 월별 매출 (결측 월은 0)"""
+                    if unit_name not in unit_pivot_raw.index:
+                        return pd.Series([0]*n_months, index=months_up_to_base)
+                    row = unit_pivot_raw.loc[unit_name]
+                    return pd.Series([row.get(m, 0) for m in months_up_to_base], index=months_up_to_base)
 
-            rec1 = build_rec_df(
-                unit_compare[(unit_compare['매출등급'] == '🔴 고매출') & (unit_compare['추세'] == '지속하락')],
-                '🔥 고매출 지속하락 — 연 매출 상위 부대 이탈 방지 최우선', 1)
+                stats_rows = []
+                for u in unit_compare['부대명']:
+                    series = get_unit_series(u)
+                    x = np.arange(len(series))
+                    y = series.values.astype(float)
 
-            rec2 = build_rec_df(
-                unit_compare[(unit_compare['매출등급'] == '🟡 중매출') & (unit_compare['추세'] == '지속하락')],
-                '⚠️ 중매출 지속하락 — 고매출 이탈 전 선제 관리 필요', 2)
+                    mean_val = y.mean()
+                    std_val  = y.std()
+                    cv = (std_val / mean_val) if mean_val > 0 else 0  # 변동계수(Coefficient of Variation)
 
-            rec3 = build_rec_df(
-                unit_compare[(unit_compare['매출등급'] == '🟡 중매출') & (unit_compare['추세'] == '상승추세')],
-                '💪 중매출 상승추세 — 고매출 진입 가능성, 관계 강화 적기', 3)
+                    # 선형회귀 기울기 (추세) - 최소 2개 이상 0이 아닌 포인트 필요
+                    if len(x) >= 2 and mean_val > 0:
+                        slope, intercept = np.polyfit(x, y, 1)
+                        # 기울기를 "평균 대비 월간 변화율(%)"로 정규화 → 부대 규모와 무관하게 비교 가능
+                        slope_pct_of_mean = (slope / mean_val) * 100 if mean_val > 0 else 0
+                    else:
+                        slope, slope_pct_of_mean = 0, 0
 
-            rec4 = build_rec_df(
-                unit_compare[(unit_compare['매출등급'] == '🔵 저매출') & (unit_compare['추세'] == '상승추세')],
-                '🌱 저매출 상승추세 — 성장 신호 포착, 중매출 진입 육성 가능', 4)
+                    # 기준월 vs 직전 N개월(기준월 제외) 평균 — "평소 대비 이번달" 급감 판단용
+                    if len(y) >= 4:
+                        baseline_months = y[:-1]  # 기준월 제외한 이전 달들
+                        baseline_avg = baseline_months[-3:].mean() if len(baseline_months) >= 3 else baseline_months.mean()
+                    else:
+                        baseline_avg = y[:-1].mean() if len(y) > 1 else 0
+                    current_val = y[-1]
+                    drop_from_baseline_pct = ((current_val - baseline_avg) / baseline_avg * 100) if baseline_avg > 0 else 0
 
-            rec5 = build_rec_df(
-                unit_compare[(unit_compare['매출등급'] == '🔵 저매출') & (unit_compare['추세'] == '안정')],
-                '📌 저매출 유지 — 잠재 수요 발굴 및 품목 다양화 제안', 5)
+                    stats_rows.append({
+                        '부대명': u,
+                        '평균매출': mean_val,
+                        '표준편차': std_val,
+                        '변동계수': cv,
+                        '추세기울기_pct': slope_pct_of_mean,
+                        '직전평균': baseline_avg,
+                        '기준월매출': current_val,
+                        '기준월괴리율': drop_from_baseline_pct,
+                    })
 
-            rec_all = pd.concat([rec1, rec2, rec3, rec4, rec5]).drop_duplicates(subset='부대명')
-            rec_all = rec_all.sort_values(['우선순위', '연매출'], ascending=[True, False])
+                stats_df = pd.DataFrame(stats_rows)
+                stats_df = stats_df.merge(unit_compare[['부대명', '매출등급', '연매출']], on='부대명', how='left')
+                stats_df = stats_df[stats_df['평균매출'] > 0].reset_index(drop=True)
 
-            if not rec_all.empty:
-                priority_colors = {1: '#d9534f', 2: '#e8853d', 3: '#5cb85c', 4: '#29a86e', 5: '#5bc0de'}
-                priority_labels = {
-                    1: '🔥 즉시 대응 (고매출 하락)',
-                    2: '⚠️ 선제 관리 (중매출 하락)',
-                    3: '💪 모멘텀 강화 (중매출 상승)',
-                    4: '🌱 성장 육성 (저매출 상승)',
-                    5: '📌 수요 발굴 (저매출 유지)',
-                }
-                priority_desc = {
-                    1: "연매출 상위 부대임에도 최근 3개월 평균이 전체 월평균보다 20% 이상 낮습니다. 1회성이 아닌 구조적 하락일 가능성이 높으므로 즉시 방문하여 원인(경쟁사 진입, 담당자 교체, 불만 등)을 파악하세요.",
-                    2: "중매출 부대인데 최근 3개월 하락 추세가 지속되고 있습니다. 지금 관리하지 않으면 저매출로 이탈할 수 있습니다. 선제적 방문과 제안으로 관계를 강화하세요.",
-                    3: "중매출을 유지하면서 최근 상승 추세까지 보이는 부대입니다. 추가 품목 제안, 납품 물량 확대 등 적극적인 영업으로 고매출 진입을 노릴 수 있는 최적의 타이밍입니다.",
-                    4: "아직 저매출이지만 최근 3개월 상승 추세가 뚜렷합니다. 지금 집중 관리하면 중매출 이상으로 끌어올릴 수 있는 성장 가능성이 높은 부대입니다.",
-                    5: "거래는 꾸준히 이어지고 있으나 매출 규모가 작게 유지되고 있습니다. 품목 다양화 제안이나 담당자 관계 강화를 통해 잠재 수요를 발굴해보세요.",
-                }
+                # 변동계수 기준 분위수 (등락폭 큰 부대 판단용)
+                cv_75 = stats_df['변동계수'].quantile(0.75)
+                # 평균매출 기준 하위 33% (저매출 판단 - STEP1과 별개로 절대금액 기준 재확인용)
+                avg_sales_33 = stats_df['평균매출'].quantile(0.33)
 
-                # 표시 컬럼 순서: 부대명, 매출등급, 추세, 연매출, 월평균매출, 최근4개월..., 증감율, 추천사유
-                base_cols = ['부대명', '매출등급', '추세', '연매출', '월평균매출']
-                extra_cols = recent_col_names
-                tail_cols  = ['증감율(%)', '추천사유']
-                all_disp_cols = base_cols + extra_cols + tail_cols
+                # ── 패턴 ① 지속 하락: 추세기울기가 뚜렷한 음수 (회귀선 기준, 평균 대비 월 -5% 이상 하락 추세) ──
+                pattern1 = stats_df[stats_df['추세기울기_pct'] <= -5].copy()
+                pattern1 = pattern1.sort_values('추세기울기_pct')
 
-                for priority in [1, 2, 3, 4, 5]:
-                    grp = rec_all[rec_all['우선순위'] == priority]
-                    if grp.empty: continue
-                    color = priority_colors[priority]
-                    label = priority_labels[priority]
-                    desc  = priority_desc[priority]
+                # ── 패턴 ② 등락폭 큰 부대: 변동계수 상위 25% (단, 데이터가 거의 0에 가까운 부대 제외 위해 평균매출 최소 기준 적용) ──
+                pattern2 = stats_df[
+                    (stats_df['변동계수'] >= cv_75) &
+                    (stats_df['평균매출'] >= stats_df['평균매출'].quantile(0.10))
+                ].copy()
+                pattern2 = pattern2.sort_values('변동계수', ascending=False)
 
+                # ── 패턴 ③ 평소 일정 → 이번달 급감: 변동계수는 낮은데(안정적) 기준월만 직전평균 대비 -30% 이상 ──
+                pattern3 = stats_df[
+                    (stats_df['변동계수'] < cv_75) &      # 평소엔 안정적이던 부대
+                    (stats_df['기준월괴리율'] <= -30) &     # 이번달만 급감
+                    (stats_df['직전평균'] > 0)
+                ].copy()
+                pattern3 = pattern3.sort_values('기준월괴리율')
+
+                # ── 패턴 ④ 꾸준한 저매출: 평균매출 하위 33% + 변동계수도 낮음(안정적으로 낮게 유지) ──
+                pattern4 = stats_df[
+                    (stats_df['평균매출'] <= avg_sales_33) &
+                    (stats_df['변동계수'] < cv_75) &
+                    (stats_df['기준월매출'] > 0)  # 이번달도 거래 존재 (이탈 부대 제외)
+                ].copy()
+                pattern4 = pattern4.sort_values('평균매출', ascending=False)
+
+                # 최근 4개월 매출 컬럼 (표시용)
+                recent_4 = months_up_to_base[-4:] if len(months_up_to_base) >= 4 else months_up_to_base
+                recent_col_names = [f"{m}월매출" for m in recent_4]
+
+                def attach_recent_months(d):
+                    d = d.copy()
+                    for m, col in zip(recent_4, recent_col_names):
+                        d[col] = d['부대명'].apply(
+                            lambda u: unit_pivot_raw.loc[u, m] if u in unit_pivot_raw.index and m in unit_pivot_raw.columns else 0
+                        )
+                    return d
+
+                pattern1 = attach_recent_months(pattern1)
+                pattern2 = attach_recent_months(pattern2)
+                pattern3 = attach_recent_months(pattern3)
+                pattern4 = attach_recent_months(pattern4)
+
+                # ─────────────────────────────────────
+                # 패턴별 출력 공통 함수
+                # ─────────────────────────────────────
+                def render_pattern_block(title, color, desc, pattern_df, metric_col, metric_label, metric_fmt):
                     st.markdown(f"""
                     <div style="border-left:5px solid {color};padding:12px 16px;margin-bottom:4px;
                                 background-color:rgba(255,255,255,0.03);border-radius:4px;">
-                        <strong style="color:{color};font-size:15px;">{label}</strong>
-                        &nbsp;&nbsp;<span style="color:#aaa;font-size:13px;">({len(grp)}개 부대)</span>
+                        <strong style="color:{color};font-size:15px;">{title}</strong>
+                        &nbsp;&nbsp;<span style="color:#aaa;font-size:13px;">({len(pattern_df)}개 부대)</span>
                         <p style="margin:8px 0 0 0;font-size:13px;color:#ccc;line-height:1.6;">
-                            💡 <b>추천 근거:</b> {desc}
+                            💡 <b>판단 기준:</b> {desc}
                         </p>
                     </div>""", unsafe_allow_html=True)
 
-                    disp_rec = grp[all_disp_cols].copy()
-                    disp_rec['연매출']     = disp_rec['연매출'].apply(lambda x: f"{x:,.0f}")
-                    disp_rec['월평균매출'] = disp_rec['월평균매출'].apply(lambda x: f"{x:,.0f}")
-                    for col in extra_cols:
-                        disp_rec[col] = disp_rec[col].apply(lambda x: f"{x:,.0f}")
-                    disp_rec['증감율(%)'] = disp_rec['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
-                    st.dataframe(disp_rec, use_container_width=True)
+                    if pattern_df.empty:
+                        st.info("해당 조건에 부합하는 부대가 없습니다.")
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        return
+
+                    disp_cols = ['부대명', '매출등급', '평균매출'] + recent_col_names + [metric_col]
+                    disp = pattern_df[disp_cols].head(15).copy()
+                    disp['평균매출'] = disp['평균매출'].apply(lambda x: f"{x:,.0f}")
+                    for col in recent_col_names:
+                        disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
+                    disp[metric_col] = disp[metric_col].apply(metric_fmt)
+                    disp = disp.rename(columns={metric_col: metric_label})
+                    st.dataframe(disp, use_container_width=True)
                     st.markdown("<br>", unsafe_allow_html=True)
 
-                dl_cols = ['부대명', '매출등급', '추세', '연매출', '월평균매출'] + recent_col_names + ['증감율(%)', '추천사유', '우선순위']
-                st.download_button(
-                    label="📥 추천 부대 리스트 다운로드",
-                    data=rec_all[dl_cols].to_csv(index=False).encode('utf-8-sig'),
-                    file_name=f'{selected_base_month+1}월_영업집중부대_추천.csv',
-                    mime='text/csv'
+                # ── ① 지속 하락 부대 ──
+                render_pattern_block(
+                    "📉 지속 하락 부대",
+                    "#d9534f",
+                    f"1월~{selected_base_month}월 전체 매출 추세선(회귀분석)이 일관되게 하락하는 부대입니다. 단발성 감소가 아닌 구조적 이탈 신호이므로 우선 방문하여 원인을 파악하세요.",
+                    pattern1, '추세기울기_pct', '추세(월평균대비%)', lambda x: f"{x:+.1f}%/월"
                 )
-            else:
-                st.info("추천 대상 부대가 없습니다. 데이터가 2개월 이상 있어야 분석이 가능합니다.")
+
+                # ── ② 등락폭 큰 부대 ──
+                render_pattern_block(
+                    "🌊 매출 등락폭이 큰 부대",
+                    "#f0ad4e",
+                    f"월별 매출 변동성(변동계수)이 상위 25%에 해당하는 부대입니다. 발주가 불규칙하므로 정기 발주 전환을 제안하거나, 변동 원인(계절성/행사성 수요 등)을 파악해 대응 전략을 세우세요.",
+                    pattern2, '변동계수', '변동계수', lambda x: f"{x:.2f}"
+                )
+
+                # ── ③ 이번달 급감 부대 ──
+                render_pattern_block(
+                    "⚠️ 평소엔 안정적이었는데 이번 달 급감한 부대",
+                    "#e8853d",
+                    f"최근 3개월 평균은 안정적이었으나 {selected_base_month}월에만 직전 평균 대비 30% 이상 급감했습니다. 일회성 이슈(재고/예산/담당자 변경)일 가능성이 높으므로 빠르게 확인이 필요합니다.",
+                    pattern3, '기준월괴리율', f'{selected_base_month}월 괴리율', lambda x: f"{x:+.1f}%"
+                )
+
+                # ── ④ 꾸준한 저매출 부대 ──
+                render_pattern_block(
+                    "📌 꾸준히 저매출을 유지 중인 부대",
+                    "#5bc0de",
+                    "월별 매출 변동 없이 꾸준히 낮은 매출 수준을 유지하고 있는 부대입니다. 거래는 안정적이나 규모가 작으므로, 품목 다양화 제안이나 추가 수요 발굴을 통해 매출 확대 가능성을 점검하세요.",
+                    pattern4, '평균매출', '월평균매출', lambda x: f"{x:,.0f}원"
+                )
+
+                # ─────────────────────────────────────
+                # 통합 다운로드
+                # ─────────────────────────────────────
+                st.markdown("---")
+                p1d = pattern1.copy(); p1d['분류'] = '지속 하락'
+                p2d = pattern2.copy(); p2d['분류'] = '등락폭 큼'
+                p3d = pattern3.copy(); p3d['분류'] = '이번달 급감'
+                p4d = pattern4.copy(); p4d['분류'] = '꾸준 저매출'
+
+                dl_base_cols = ['부대명', '매출등급', '평균매출'] + recent_col_names + ['분류']
+                dl_all = pd.concat([
+                    p1d[dl_base_cols] if not p1d.empty else pd.DataFrame(columns=dl_base_cols),
+                    p2d[dl_base_cols] if not p2d.empty else pd.DataFrame(columns=dl_base_cols),
+                    p3d[dl_base_cols] if not p3d.empty else pd.DataFrame(columns=dl_base_cols),
+                    p4d[dl_base_cols] if not p4d.empty else pd.DataFrame(columns=dl_base_cols),
+                ])
+
+                if not dl_all.empty:
+                    st.download_button(
+                        label="📥 영업 집중 부대 추천 전체 다운로드",
+                        data=dl_all.to_csv(index=False).encode('utf-8-sig'),
+                        file_name=f'{selected_base_month+1}월_영업집중부대_추천.csv',
+                        mime='text/csv'
+                    )
+                else:
+                    st.info("추천 대상 부대가 없습니다.")
 
     except Exception as e:
         import traceback
