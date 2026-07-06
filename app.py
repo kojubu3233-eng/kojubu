@@ -273,7 +273,9 @@ if raw_df is not None:
             unit_compare['연매출']    = unit_compare['부대명'].map(unit_annual).fillna(0)
             unit_compare['월평균매출'] = unit_compare['부대명'].map(unit_avg).fillna(0)
             unit_compare['매출등급']  = unit_compare['부대명'].map(grade_by_rank)
-            unit_compare = unit_compare[unit_compare['당월매출'] > 0].reset_index(drop=True)
+            
+            # 당월매출 0원 삭제 코드 제거 (전체 부대 유지)
+            # unit_compare = unit_compare[unit_compare['당월매출'] > 0].reset_index(drop=True)
 
             all_months_sorted = sorted(unit_pivot_raw.columns.tolist())
             months_up_to_base = [m for m in all_months_sorted if m <= selected_base_month]
@@ -301,14 +303,15 @@ if raw_df is not None:
 
             SURGE_THRESHOLD = 30
 
-            def surge_type(pct, prev):
-                if prev == 0: return '신규'
+            def surge_type(pct, prev, curr):
+                if prev == 0 and curr > 0: return '신규'
+                if prev == 0 and curr == 0: return '➡️ 유지' # 0원 부대가 남으면서 추가된 방어코드
                 if pct >= SURGE_THRESHOLD: return '📈 급증'
                 if pct <= -SURGE_THRESHOLD: return '📉 급감'
                 return '➡️ 유지'
 
             unit_compare['변동유형'] = unit_compare.apply(
-                lambda r: surge_type(r['증감율(%)'], r['전월매출']), axis=1)
+                lambda r: surge_type(r['증감율(%)'], r['전월매출'], r['당월매출']), axis=1)
 
             def keyword_filter(df_in, key):
                 if key.strip():
