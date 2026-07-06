@@ -71,14 +71,15 @@ if raw_df is not None:
         active_months = df.groupby('부대명')['월'].nunique()
         unit_avg      = unit_annual / active_months
 
-        # 매출등급: rank 기반 균등 3등분 (method='first' 적용으로 완벽한 1:1:1 강제 분할)
-        unit_annual_rank = unit_annual.rank(pct=True, method='first')
-
-        def grade_by_rank(unit_name):
-            r = unit_annual_rank.get(unit_name, 0)
-            if r > 0.6666: return '🔴 고매출'
-            elif r > 0.3333: return '🟡 중매출'
-            else: return '🔵 저매출'
+        # ── 강제 1:1:1 분할 로직 (pd.qcut 활용) ──
+        if len(unit_annual) >= 3:
+            unit_ranks = unit_annual.rank(method='first')
+            unit_grades = pd.qcut(unit_ranks, q=3, labels=['🔵 저매출', '🟡 중매출', '🔴 고매출'])
+            def grade_by_rank(unit_name):
+                return unit_grades.get(unit_name, '🔵 저매출')
+        else:
+            def grade_by_rank(unit_name):
+                return '🟡 중매출'
 
         def fmt_m(val):
             return f"{val/1_000_000:+.1f}M" if val != 0 else "0M"
@@ -319,7 +320,7 @@ if raw_df is not None:
             # ── STEP 1: 연매출 기준 등급 ──
             st.markdown("---")
             st.subheader("🏅 STEP 1 · 연매출 기준 고/중/저 매출 부대")
-            st.caption("rank 기반 3등분 (연매출 기준) — 상위 33% = 🔴 고매출 / 중위 34% = 🟡 중매출 / 하위 33% = 🔵 저매출")
+            st.caption("강제 3등분 분할 (연매출 기준) — 상위 33% = 🔴 고매출 / 중위 33% = 🟡 중매출 / 하위 33% = 🔵 저매출")
 
             col_a2, col_b2, col_c2 = st.columns([1, 2, 1])
             with col_a2: filter_grade = st.selectbox("필터", ["전체", "🔴 고매출", "🟡 중매출", "🔵 저매출"], key="grade_filter")
