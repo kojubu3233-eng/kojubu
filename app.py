@@ -71,13 +71,13 @@ if raw_df is not None:
         active_months = df.groupby('부대명')['월'].nunique()
         unit_avg      = unit_annual / active_months
 
-        # 매출등급: rank 기반 균등 3등분
-        unit_annual_rank = unit_annual.rank(pct=True, method='average')
+        # 매출등급: rank 기반 균등 3등분 (method='first' 적용으로 완벽한 1:1:1 강제 분할)
+        unit_annual_rank = unit_annual.rank(pct=True, method='first')
 
         def grade_by_rank(unit_name):
             r = unit_annual_rank.get(unit_name, 0)
-            if r > 0.67: return '🔴 고매출'
-            elif r > 0.33: return '🟡 중매출'
+            if r > 0.6666: return '🔴 고매출'
+            elif r > 0.3333: return '🟡 중매출'
             else: return '🔵 저매출'
 
         def fmt_m(val):
@@ -135,9 +135,10 @@ if raw_df is not None:
                     pivot_df.columns = [f"{int(c)}월" for c in pivot_df.columns]
                     pivot_df['총합계'] = pivot_df.sum(axis=1)
                     pivot_df = pivot_df.sort_values('총합계', ascending=False)
-                    
-                    # 문자열 변환 방식에서 style.format 적용 방식으로 수정 (정렬 유지용)
-                    st.dataframe(pivot_df.style.format("{:,.0f}"), use_container_width=True)
+                    safe_pivot_df = pivot_df.copy()
+                    for col in safe_pivot_df.columns:
+                        safe_pivot_df[col] = safe_pivot_df[col].apply(lambda x: f"{x:,.0f}")
+                    st.dataframe(safe_pivot_df, use_container_width=True)
 
             st.markdown("---")
             st.header("2. 매출 상세 분석 및 부대별 현황")
@@ -147,10 +148,8 @@ if raw_df is not None:
             unit_pivot.columns = [f"{int(c)}월" for c in unit_pivot.columns]
             unit_pivot['총매출'] = unit_pivot.sum(axis=1)
             unit_pivot = unit_pivot.sort_index(ascending=True)
-            
-            # 문자열 변환 방식에서 style.format 적용 방식으로 수정
-            st.dataframe(unit_pivot.style.format("{:,.0f}"), use_container_width=True)
-            
+            safe_unit_pivot = unit_pivot.map(lambda x: f"{x:,.0f}")
+            st.dataframe(safe_unit_pivot, use_container_width=True)
             st.download_button(label="📥 부대별 현황 엑셀 다운로드",
                 data=unit_pivot.to_csv().encode('utf-8-sig'),
                 file_name='부대별_매출_현황.csv', mime='text/csv')
@@ -238,13 +237,10 @@ if raw_df is not None:
                     if raw_cat:  final_table_df = final_table_df[final_table_df['구분'].isin(raw_cat)]
                     if raw_item: final_table_df = final_table_df[final_table_df['품목'].isin(raw_item)]
                     st.write(f"결과: **{len(final_table_df)}건**")
-                    
-                    # 문자열 변환 방식에서 style.format 적용 방식으로 수정
-                    st.dataframe(final_table_df.style.format({
-                        '수량': '{:,.0f}',
-                        '단가(Vat별도)': '{:,.0f}',
-                        '매출': '{:,.0f}'
-                    }), use_container_width=True)
+                    display_df = final_table_df.copy()
+                    for col in ['수량', '단가(Vat별도)', '매출']:
+                        display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f}")
+                    st.dataframe(display_df, use_container_width=True)
             else:
                 st.warning("선택하신 필터 조건과 일치하는 데이터가 없습니다.")
 
@@ -281,7 +277,6 @@ if raw_df is not None:
             all_months_sorted = sorted(unit_pivot_raw.columns.tolist())
             months_up_to_base = [m for m in all_months_sorted if m <= selected_base_month]
 
-            # 추세 판단: 최근 3개월 평균 vs 전체 월평균 (STEP3/표시용으로 유지)
             def calc_trend(unit_name):
                 if unit_name not in unit_pivot_raw.index:
                     return '안정', 0.0
@@ -302,13 +297,6 @@ if raw_df is not None:
             unit_compare[['추세', '추세편차(%)']] = unit_compare['부대명'].apply(
                 lambda u: pd.Series(calc_trend(u))
             )
-
-            def get_recent_month_sales(unit_name, base_month, n=4):
-                if unit_name not in unit_pivot_raw.index:
-                    return {}
-                row = unit_pivot_raw.loc[unit_name]
-                recent = [m for m in all_months_sorted if m <= base_month][-n:]
-                return {m: row.get(m, 0) for m in recent}
 
             SURGE_THRESHOLD = 30
 
@@ -331,15 +319,22 @@ if raw_df is not None:
             # ── STEP 1: 연매출 기준 등급 ──
             st.markdown("---")
             st.subheader("🏅 STEP 1 · 연매출 기준 고/중/저 매출 부대")
-            st.caption("rank 기반 균등 3등분 (연매출 기준) — 상위 33% = 🔴 고매출 / 중위 34% = 🟡 중매출 / 하위 33% = 🔵 저매출")
+            st.caption("rank 기반 3등분 (연매출 기준) — 상위 33% = 🔴 고매출 / 중위 34% = 🟡 중매출 / 하위 33% = 🔵 저매출")
 
-            col_a2, col_b2 = st.columns([1, 2])
+            col_a2, col_b2, col_c2 = st.columns([1, 2, 1])
             with col_a2: filter_grade = st.selectbox("필터", ["전체", "🔴 고매출", "🟡 중매출", "🔵 저매출"], key="grade_filter")
             with col_b2: kw_grade = st.text_input("🔍 부대명 검색", key="kw_grade", placeholder="부대명 입력...")
+            with col_c2: sort_grade = st.selectbox("정렬 기준", ["매출액 내림차순", "매출액 오름차순", "부대명 가나다순", "부대명 역순"], key="sort_grade")
 
             grade_df = unit_compare.copy()
             if filter_grade != "전체": grade_df = grade_df[grade_df['매출등급'] == filter_grade]
-            grade_df = keyword_filter(grade_df, kw_grade).sort_values('연매출', ascending=False)
+            grade_df = keyword_filter(grade_df, kw_grade)
+            
+            # 필터에 따른 정렬 적용
+            if sort_grade == "매출액 내림차순": grade_df = grade_df.sort_values('연매출', ascending=False)
+            elif sort_grade == "매출액 오름차순": grade_df = grade_df.sort_values('연매출', ascending=True)
+            elif sort_grade == "부대명 가나다순": grade_df = grade_df.sort_values('부대명', ascending=True)
+            elif sort_grade == "부대명 역순": grade_df = grade_df.sort_values('부대명', ascending=False)
 
             g1, g2, g3 = st.columns(3)
             g1.metric("🔴 고매출 부대", f"{len(unit_compare[unit_compare['매출등급']=='🔴 고매출'])}개")
@@ -351,39 +346,44 @@ if raw_df is not None:
                 fig_grade = px.bar(top30, x='부대명', y='연매출',
                     color='매출등급',
                     color_discrete_map=COLOR_MAP,
-                    title="부대별 연매출 (상위 30개)",
+                    title="부대별 연매출 (상위 30개 표시)",
                     text=top30['연매출'].apply(fmt_m_abs))
                 fig_grade.update_traces(textposition='outside', textfont_size=13)
                 fig_grade.update_layout(height=460, yaxis_tickformat=',', yaxis_title='연매출 (원)')
                 fig_grade.update_xaxes(tickangle=-40)
                 st.plotly_chart(fig_grade, use_container_width=True)
 
-                disp2 = grade_df[['부대명', '매출등급', '연매출', '당월매출']]
-                # 문자열 변환 방식에서 style.format 적용 방식으로 수정
-                st.dataframe(disp2.style.format({
-                    '연매출': '{:,.0f}',
-                    '당월매출': '{:,.0f}'
-                }), use_container_width=True)
+                disp2 = grade_df[['부대명', '매출등급', '연매출', '당월매출']].copy()
+                disp2['연매출']   = disp2['연매출'].apply(lambda x: f"{x:,.0f}")
+                disp2['당월매출'] = disp2['당월매출'].apply(lambda x: f"{x:,.0f}")
+                st.dataframe(disp2, use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
-            # ── STEP 2: 증가 / 감소 (금액, M단위 레이블) ──
+            # ── STEP 2: 증가 / 감소 ──
             st.markdown("---")
             st.subheader(f"📈 STEP 2 · 매출 증가 / 감소 부대 ({prev_month}월 → {selected_base_month}월)")
-            st.caption("증감액(원) 기준 오름차순 정렬 — 색상은 STEP 1 매출등급. 레이블은 백만(M) 단위.")
+            st.caption("색상은 STEP 1 매출등급. 레이블은 백만(M) 단위.")
 
-            col_a, col_b = st.columns([1, 2])
+            col_a, col_b, col_c = st.columns([1, 2, 1])
             with col_a: filter_trend = st.selectbox("필터", ["전체", "증가", "감소"], key="trend_filter")
             with col_b: kw_trend = st.text_input("🔍 부대명 검색", key="kw_trend", placeholder="부대명 입력...")
+            with col_c: sort_trend = st.selectbox("정렬 기준", ["증감액 내림차순", "증감액 오름차순", "부대명 가나다순", "부대명 역순"], key="sort_trend")
 
             trend_df = unit_compare.copy()
             if filter_trend == "증가": trend_df = trend_df[trend_df['증감액'] > 0]
             elif filter_trend == "감소": trend_df = trend_df[trend_df['증감액'] < 0]
-            trend_df = keyword_filter(trend_df, kw_trend).sort_values('증감액', ascending=True)
+            trend_df = keyword_filter(trend_df, kw_trend)
+
+            # 필터에 따른 정렬 적용
+            if sort_trend == "증감액 내림차순": trend_df = trend_df.sort_values('증감액', ascending=False)
+            elif sort_trend == "증감액 오름차순": trend_df = trend_df.sort_values('증감액', ascending=True)
+            elif sort_trend == "부대명 가나다순": trend_df = trend_df.sort_values('부대명', ascending=True)
+            elif sort_trend == "부대명 역순": trend_df = trend_df.sort_values('부대명', ascending=False)
 
             m1, m2, m3 = st.columns(3)
-            m1.metric("📈 증가 부대 수", f"{len(trend_df[trend_df['증감액'] > 0])}개")
-            m2.metric("📉 감소 부대 수", f"{len(trend_df[trend_df['증감액'] < 0])}개")
+            m1.metric("📈 증가 부대 수", f"{len(unit_compare[unit_compare['증감액'] > 0])}개")
+            m2.metric("📉 감소 부대 수", f"{len(unit_compare[unit_compare['증감액'] < 0])}개")
             m3.metric("📊 분석 대상", f"{len(trend_df)}개")
 
             if not trend_df.empty:
@@ -398,29 +398,34 @@ if raw_df is not None:
                 fig_trend.update_xaxes(tickangle=-40)
                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                disp = trend_df[['부대명', '매출등급', '전월매출', '당월매출', '증감액', '증감율(%)']]
-                # 문자열 변환 방식에서 style.format 적용 방식으로 수정
-                st.dataframe(disp.style.format({
-                    '전월매출': '{:,.0f}',
-                    '당월매출': '{:,.0f}',
-                    '증감액': '{:+,.0f}',
-                    '증감율(%)': '{:+.1f}%'
-                }), use_container_width=True)
+                disp = trend_df[['부대명', '매출등급', '전월매출', '당월매출', '증감액', '증감율(%)']].copy()
+                for c in ['전월매출', '당월매출']:
+                    disp[c] = disp[c].apply(lambda x: f"{x:,.0f}")
+                disp['증감액']    = disp['증감액'].apply(lambda x: f"{x:+,.0f}")
+                disp['증감율(%)'] = disp['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
+                st.dataframe(disp, use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
-            # ── STEP 3: 급증 / 급감 (금액, M단위 레이블) ──
+            # ── STEP 3: 급증 / 급감 ──
             st.markdown("---")
             st.subheader(f"⚡ STEP 3 · 매출 급증 / 급감 부대 (전월 대비 ±{SURGE_THRESHOLD}% 이상)")
             st.caption(f"STEP 2 증감 중 ±{SURGE_THRESHOLD}% 이상 변동한 부대. 색상은 STEP 1 매출등급. 레이블은 백만(M) 단위.")
 
-            col_a3, col_b3 = st.columns([1, 2])
+            col_a3, col_b3, col_c3 = st.columns([1, 2, 1])
             with col_a3: filter_surge = st.selectbox("필터", ["전체", "📈 급증", "📉 급감", "➡️ 유지", "신규"], key="surge_filter")
             with col_b3: kw_surge = st.text_input("🔍 부대명 검색", key="kw_surge", placeholder="부대명 입력...")
+            with col_c3: sort_surge = st.selectbox("정렬 기준", ["증감액 내림차순", "증감액 오름차순", "부대명 가나다순", "부대명 역순"], key="sort_surge")
 
             surge_df = unit_compare.copy()
             if filter_surge != "전체": surge_df = surge_df[surge_df['변동유형'] == filter_surge]
-            surge_df = keyword_filter(surge_df, kw_surge).sort_values('증감액', ascending=True)
+            surge_df = keyword_filter(surge_df, kw_surge)
+
+            # 필터에 따른 정렬 적용
+            if sort_surge == "증감액 내림차순": surge_df = surge_df.sort_values('증감액', ascending=False)
+            elif sort_surge == "증감액 오름차순": surge_df = surge_df.sort_values('증감액', ascending=True)
+            elif sort_surge == "부대명 가나다순": surge_df = surge_df.sort_values('부대명', ascending=True)
+            elif sort_surge == "부대명 역순": surge_df = surge_df.sort_values('부대명', ascending=False)
 
             s1, s2, s3 = st.columns(3)
             s1.metric("📈 급증 부대", f"{len(unit_compare[unit_compare['변동유형']=='📈 급증'])}개")
@@ -440,18 +445,16 @@ if raw_df is not None:
                     fig_surge.update_xaxes(tickangle=-40)
                     st.plotly_chart(fig_surge, use_container_width=True)
 
-                disp3 = surge_df[['부대명', '매출등급', '변동유형', '추세', '전월매출', '당월매출', '증감율(%)']]
-                # 문자열 변환 방식에서 style.format 적용 방식으로 수정
-                st.dataframe(disp3.style.format({
-                    '전월매출': '{:,.0f}',
-                    '당월매출': '{:,.0f}',
-                    '증감율(%)': '{:+.1f}%'
-                }), use_container_width=True)
+                disp3 = surge_df[['부대명', '매출등급', '변동유형', '추세', '전월매출', '당월매출', '증감율(%)']].copy()
+                disp3['전월매출']  = disp3['전월매출'].apply(lambda x: f"{x:,.0f}")
+                disp3['당월매출']  = disp3['당월매출'].apply(lambda x: f"{x:,.0f}")
+                disp3['증감율(%)'] = disp3['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
+                st.dataframe(disp3, use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
             # ══════════════════════════════════════════
-            # STEP 4 : 영업 활동 집중 부대 추천 (4가지 핵심 패턴 기반, 전면 재설계)
+            # STEP 4 : 영업 활동 집중 부대 추천 
             # ══════════════════════════════════════════
             st.markdown("---")
             st.subheader(f"🚀 STEP 4 · {selected_base_month + 1}월 영업 활동 집중 부대 추천")
@@ -465,11 +468,7 @@ if raw_df is not None:
             if n_months < 3:
                 st.warning("⚠️ 추세 분석을 위해서는 최소 3개월 이상의 데이터가 필요합니다. 현재 분석 가능한 월: " + f"{n_months}개월")
             else:
-                # ─────────────────────────────────────
-                # 부대별 1~기준월 전체 매출 시계열 + 통계치 계산
-                # ─────────────────────────────────────
                 def get_unit_series(unit_name):
-                    """1월~기준월까지 부대의 월별 매출 (결측 월은 0)"""
                     if unit_name not in unit_pivot_raw.index:
                         return pd.Series([0]*n_months, index=months_up_to_base)
                     row = unit_pivot_raw.loc[unit_name]
@@ -483,22 +482,20 @@ if raw_df is not None:
 
                     mean_val = y.mean()
                     std_val  = y.std()
-                    cv = (std_val / mean_val) if mean_val > 0 else 0  # 변동계수(Coefficient of Variation)
+                    cv = (std_val / mean_val) if mean_val > 0 else 0
 
-                    # 선형회귀 기울기 (추세) - 최소 2개 이상 0이 아닌 포인트 필요
                     if len(x) >= 2 and mean_val > 0:
                         slope, intercept = np.polyfit(x, y, 1)
-                        # 기울기를 "평균 대비 월간 변화율(%)"로 정규화 → 부대 규모와 무관하게 비교 가능
                         slope_pct_of_mean = (slope / mean_val) * 100 if mean_val > 0 else 0
                     else:
                         slope, slope_pct_of_mean = 0, 0
 
-                    # 기준월 vs 직전 N개월(기준월 제외) 평균 — "평소 대비 이번달" 급감 판단용
                     if len(y) >= 4:
-                        baseline_months = y[:-1]  # 기준월 제외한 이전 달들
+                        baseline_months = y[:-1] 
                         baseline_avg = baseline_months[-3:].mean() if len(baseline_months) >= 3 else baseline_months.mean()
                     else:
                         baseline_avg = y[:-1].mean() if len(y) > 1 else 0
+                        
                     current_val = y[-1]
                     drop_from_baseline_pct = ((current_val - baseline_avg) / baseline_avg * 100) if baseline_avg > 0 else 0
 
@@ -517,39 +514,32 @@ if raw_df is not None:
                 stats_df = stats_df.merge(unit_compare[['부대명', '매출등급', '연매출']], on='부대명', how='left')
                 stats_df = stats_df[stats_df['평균매출'] > 0].reset_index(drop=True)
 
-                # 변동계수 기준 분위수 (등락폭 큰 부대 판단용)
                 cv_75 = stats_df['변동계수'].quantile(0.75)
-                # 평균매출 기준 하위 33% (저매출 판단 - STEP1과 별개로 절대금액 기준 재확인용)
                 avg_sales_33 = stats_df['평균매출'].quantile(0.33)
 
-                # ── 패턴 ① 지속 하락: 추세기울기가 뚜렷한 음수 (회귀선 기준, 평균 대비 월 -5% 이상 하락 추세) ──
                 pattern1 = stats_df[stats_df['추세기울기_pct'] <= -5].copy()
                 pattern1 = pattern1.sort_values('추세기울기_pct')
 
-                # ── 패턴 ② 등락폭 큰 부대: 변동계수 상위 25% (단, 데이터가 거의 0에 가까운 부대 제외 위해 평균매출 최소 기준 적용) ──
                 pattern2 = stats_df[
                     (stats_df['변동계수'] >= cv_75) &
                     (stats_df['평균매출'] >= stats_df['평균매출'].quantile(0.10))
                 ].copy()
                 pattern2 = pattern2.sort_values('변동계수', ascending=False)
 
-                # ── 패턴 ③ 평소 일정 → 이번달 급감: 변동계수는 낮은데(안정적) 기준월만 직전평균 대비 -30% 이상 ──
                 pattern3 = stats_df[
-                    (stats_df['변동계수'] < cv_75) &      # 평소엔 안정적이던 부대
-                    (stats_df['기준월괴리율'] <= -30) &     # 이번달만 급감
+                    (stats_df['변동계수'] < cv_75) &      
+                    (stats_df['기준월괴리율'] <= -30) &     
                     (stats_df['직전평균'] > 0)
                 ].copy()
                 pattern3 = pattern3.sort_values('기준월괴리율')
 
-                # ── 패턴 ④ 꾸준한 저매출: 평균매출 하위 33% + 변동계수도 낮음(안정적으로 낮게 유지) ──
                 pattern4 = stats_df[
                     (stats_df['평균매출'] <= avg_sales_33) &
                     (stats_df['변동계수'] < cv_75) &
-                    (stats_df['기준월매출'] > 0)  # 이번달도 거래 존재 (이탈 부대 제외)
+                    (stats_df['기준월매출'] > 0)  
                 ].copy()
                 pattern4 = pattern4.sort_values('평균매출', ascending=False)
 
-                # 1월~기준월 전체 매출 컬럼 (표시용)
                 all_col_months = months_up_to_base
                 all_col_names = [f"{m}월매출" for m in all_col_months]
 
@@ -566,9 +556,6 @@ if raw_df is not None:
                 pattern3 = attach_all_months(pattern3)
                 pattern4 = attach_all_months(pattern4)
 
-                # ─────────────────────────────────────
-                # 패턴별 출력 공통 함수
-                # ─────────────────────────────────────
                 def render_pattern_block(title, color, desc, pattern_df, metric_col=None, metric_label=None, metric_fmt=None):
                     st.markdown(f"""
                     <div style="border-left:5px solid {color};padding:12px 16px;margin-bottom:4px;
@@ -585,27 +572,28 @@ if raw_df is not None:
                         st.markdown("<br>", unsafe_allow_html=True)
                         return
 
-                    # metric_col이 없으면 부대명+매출등급+1월~기준월 매출만 표시 (지표 컬럼 없음)
                     if metric_col is None:
                         disp_cols = ['부대명', '매출등급'] + all_col_names
-                        disp = pattern_df[disp_cols].head(15)
-                        
-                        format_dict = {col: '{:,.0f}' for col in all_col_names}
-                        st.dataframe(disp.style.format(format_dict), use_container_width=True)
+                        disp = pattern_df[disp_cols].head(15).copy()
+                        for col in all_col_names:
+                            disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
+                        st.dataframe(disp, use_container_width=True)
                         st.markdown("<br>", unsafe_allow_html=True)
                         return
 
-                    # metric_col이 있으면 기존처럼 판단지표 컬럼도 함께 표시
                     disp_cols = ['부대명', '매출등급'] + all_col_names + [metric_col]
-                    disp = pattern_df[disp_cols].head(15).rename(columns={metric_col: metric_label})
+                    disp = pattern_df[disp_cols].head(15).copy()
 
-                    format_dict = {col: '{:,.0f}' for col in all_col_names}
-                    format_dict[metric_label] = metric_fmt
-                    
-                    st.dataframe(disp.style.format(format_dict), use_container_width=True)
+                    metric_formatted = disp[metric_col].apply(metric_fmt)
+
+                    for col in all_col_names:
+                        disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
+
+                    disp[metric_col] = metric_formatted
+                    disp = disp.rename(columns={metric_col: metric_label})
+                    st.dataframe(disp, use_container_width=True)
                     st.markdown("<br>", unsafe_allow_html=True)
 
-                # ── ① 지속 하락 부대 ── (지표 컬럼 없이 1월~기준월 매출만)
                 render_pattern_block(
                     "📉 지속 하락 부대",
                     "#d9534f",
@@ -613,7 +601,6 @@ if raw_df is not None:
                     pattern1
                 )
 
-                # ── ② 등락폭 큰 부대 ── (지표 컬럼 없이 1월~기준월 매출만)
                 render_pattern_block(
                     "🌊 매출 등락폭이 큰 부대",
                     "#f0ad4e",
@@ -621,7 +608,6 @@ if raw_df is not None:
                     pattern2
                 )
 
-                # ── ③ 이번달 급감 부대 ── (현행 유지: 괴리율 지표 컬럼 표시)
                 render_pattern_block(
                     "⚠️ 평소엔 안정적이었는데 이번 달 급감한 부대",
                     "#e8853d",
@@ -629,7 +615,6 @@ if raw_df is not None:
                     pattern3, '기준월괴리율', f'{selected_base_month}월 괴리율', lambda x: f"{x:+.1f}%"
                 )
 
-                # ── ④ 꾸준한 저매출 부대 ── (지표 컬럼 없이 1월~기준월 매출만)
                 render_pattern_block(
                     "📌 꾸준히 저매출을 유지 중인 부대",
                     "#5bc0de",
@@ -637,11 +622,6 @@ if raw_df is not None:
                     pattern4
                 )
 
-
-
-                # ─────────────────────────────────────
-                # 통합 다운로드
-                # ─────────────────────────────────────
                 st.markdown("---")
                 p1d = pattern1.copy(); p1d['분류'] = '지속 하락'
                 p2d = pattern2.copy(); p2d['분류'] = '등락폭 큼'
