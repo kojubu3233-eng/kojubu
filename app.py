@@ -136,10 +136,10 @@ if raw_df is not None:
                     pivot_df.columns = [f"{int(c)}월" for c in pivot_df.columns]
                     pivot_df['총합계'] = pivot_df.sum(axis=1)
                     pivot_df = pivot_df.sort_values('총합계', ascending=False)
-                    safe_pivot_df = pivot_df.copy()
-                    for col in safe_pivot_df.columns:
-                        safe_pivot_df[col] = safe_pivot_df[col].apply(lambda x: f"{x:,.0f}")
-                    st.dataframe(safe_pivot_df, use_container_width=True)
+                    
+                    # 🔥수정 포인트: 문자열 변환(apply)을 지우고 column_config로 서식만 지정🔥
+                    pivot_col_config = {col: st.column_config.NumberColumn(format="%,d") for col in pivot_df.columns}
+                    st.dataframe(pivot_df, use_container_width=True, column_config=pivot_col_config)
 
                     # --- [추가된 대안 1: 셀 클릭 대용 선택 상자] ---
                     st.markdown("---")
@@ -154,9 +154,10 @@ if raw_df is not None:
                     if not detail_df.empty:
                         st.success(f"✅ {sel_month}월에 '{sel_item}' 품목을 발주한 부대 목록입니다.")
                         disp_detail = detail_df[['부대명', '수량', '단가(Vat별도)', '매출']].copy()
-                        for c in ['수량', '단가(Vat별도)', '매출']:
-                            disp_detail[c] = disp_detail[c].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) else x)
-                        st.dataframe(disp_detail, use_container_width=True)
+                        
+                        # 🔥수정 포인트: 문자열 변환(apply)을 지우고 column_config로 서식만 지정🔥
+                        detail_col_config = {c: st.column_config.NumberColumn(format="%,d") for c in ['수량', '단가(Vat별도)', '매출']}
+                        st.dataframe(disp_detail, use_container_width=True, column_config=detail_col_config)
                     else:
                         st.info(f"ℹ️ {sel_month}월에 '{sel_item}' 품목을 발주한 내역이 없습니다.")
                     # -----------------------------------------------
@@ -169,8 +170,11 @@ if raw_df is not None:
             unit_pivot.columns = [f"{int(c)}월" for c in unit_pivot.columns]
             unit_pivot['총매출'] = unit_pivot.sum(axis=1)
             unit_pivot = unit_pivot.sort_index(ascending=True)
-            safe_unit_pivot = unit_pivot.map(lambda x: f"{x:,.0f}")
-            st.dataframe(safe_unit_pivot, use_container_width=True)
+            
+            # 🔥수정 포인트: 문자열 변환(map)을 지우고 column_config로 서식만 지정🔥
+            unit_col_config = {col: st.column_config.NumberColumn(format="%,d") for col in unit_pivot.columns}
+            st.dataframe(unit_pivot, use_container_width=True, column_config=unit_col_config)
+            
             st.download_button(label="📥 부대별 현황 엑셀 다운로드",
                 data=unit_pivot.to_csv().encode('utf-8-sig'),
                 file_name='부대별_매출_현황.csv', mime='text/csv')
@@ -259,9 +263,10 @@ if raw_df is not None:
                     if raw_item: final_table_df = final_table_df[final_table_df['품목'].isin(raw_item)]
                     st.write(f"결과: **{len(final_table_df)}건**")
                     display_df = final_table_df.copy()
-                    for col in ['수량', '단가(Vat별도)', '매출']:
-                        display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f}")
-                    st.dataframe(display_df, use_container_width=True)
+                    
+                    # 🔥수정 포인트: 문자열 변환(apply)을 지우고 column_config로 서식만 지정🔥
+                    display_col_config = {c: st.column_config.NumberColumn(format="%,d") for c in ['수량', '단가(Vat별도)', '매출']}
+                    st.dataframe(display_df, use_container_width=True, column_config=display_col_config)
             else:
                 st.warning("선택하신 필터 조건과 일치하는 데이터가 없습니다.")
 
@@ -294,9 +299,6 @@ if raw_df is not None:
             unit_compare['월평균매출'] = unit_compare['부대명'].map(unit_avg).fillna(0)
             unit_compare['매출등급']  = unit_compare['부대명'].map(grade_by_rank)
             
-            # 당월매출 0원 삭제 코드 제거 (전체 부대 유지)
-            # unit_compare = unit_compare[unit_compare['당월매출'] > 0].reset_index(drop=True)
-
             all_months_sorted = sorted(unit_pivot_raw.columns.tolist())
             months_up_to_base = [m for m in all_months_sorted if m <= selected_base_month]
 
@@ -325,7 +327,7 @@ if raw_df is not None:
 
             def surge_type(pct, prev, curr):
                 if prev == 0 and curr > 0: return '신규'
-                if prev == 0 and curr == 0: return '➡️ 유지' # 0원 부대가 남으면서 추가된 방어코드
+                if prev == 0 and curr == 0: return '➡️ 유지' 
                 if pct >= SURGE_THRESHOLD: return '📈 급증'
                 if pct <= -SURGE_THRESHOLD: return '📉 급감'
                 return '➡️ 유지'
@@ -366,7 +368,6 @@ if raw_df is not None:
             g3.metric("🔵 저매출 부대", f"{len(unit_compare[unit_compare['매출등급']=='🔵 저매출'])}개")
 
             if not grade_df.empty:
-                # 30개 제한을 해제하고, 'active_months'를 참조하여 3개월 이상 납품 부대만 필터링
                 target_df = grade_df[grade_df['부대명'].map(active_months) >= 3]
                 
                 if not target_df.empty:
@@ -381,9 +382,10 @@ if raw_df is not None:
                     st.plotly_chart(fig_grade, use_container_width=True)
 
                     disp2 = target_df[['부대명', '매출등급', '연매출', '당월매출']].copy()
-                    disp2['연매출']   = disp2['연매출'].apply(lambda x: f"{x:,.0f}")
-                    disp2['당월매출'] = disp2['당월매출'].apply(lambda x: f"{x:,.0f}")
-                    st.dataframe(disp2, use_container_width=True)
+                    
+                    # 🔥수정 포인트🔥
+                    disp2_col_config = {c: st.column_config.NumberColumn(format="%,d") for c in ['연매출', '당월매출']}
+                    st.dataframe(disp2, use_container_width=True, column_config=disp2_col_config)
                 else:
                     st.info("3개월 이상 납품한 부대가 없습니다.")
             else:
@@ -428,11 +430,15 @@ if raw_df is not None:
                 st.plotly_chart(fig_trend, use_container_width=True)
 
                 disp = trend_df[['부대명', '매출등급', '전월매출', '당월매출', '증감액', '증감율(%)']].copy()
-                for c in ['전월매출', '당월매출']:
-                    disp[c] = disp[c].apply(lambda x: f"{x:,.0f}")
-                disp['증감액']    = disp['증감액'].apply(lambda x: f"{x:+,.0f}")
-                disp['증감율(%)'] = disp['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
-                st.dataframe(disp, use_container_width=True)
+                
+                # 🔥수정 포인트: 증감액/증감율도 숫자형태 유지 (정렬을 위해)🔥
+                disp_col_config = {
+                    "전월매출": st.column_config.NumberColumn(format="%,d"),
+                    "당월매출": st.column_config.NumberColumn(format="%,d"),
+                    "증감액": st.column_config.NumberColumn(format="%+,d"),
+                    "증감율(%)": st.column_config.NumberColumn(format="%+.1f%%"),
+                }
+                st.dataframe(disp, use_container_width=True, column_config=disp_col_config)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
@@ -475,10 +481,14 @@ if raw_df is not None:
                     st.plotly_chart(fig_surge, use_container_width=True)
 
                 disp3 = surge_df[['부대명', '매출등급', '변동유형', '추세', '전월매출', '당월매출', '증감율(%)']].copy()
-                disp3['전월매출']  = disp3['전월매출'].apply(lambda x: f"{x:,.0f}")
-                disp3['당월매출']  = disp3['당월매출'].apply(lambda x: f"{x:,.0f}")
-                disp3['증감율(%)'] = disp3['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
-                st.dataframe(disp3, use_container_width=True)
+                
+                # 🔥수정 포인트🔥
+                disp3_col_config = {
+                    "전월매출": st.column_config.NumberColumn(format="%,d"),
+                    "당월매출": st.column_config.NumberColumn(format="%,d"),
+                    "증감율(%)": st.column_config.NumberColumn(format="%+.1f%%"),
+                }
+                st.dataframe(disp3, use_container_width=True, column_config=disp3_col_config)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
@@ -601,12 +611,13 @@ if raw_df is not None:
                         st.markdown("<br>", unsafe_allow_html=True)
                         return
 
+                    # 🔥수정 포인트: 패턴 블록 테이블 정렬 버그 수정🔥
+                    base_col_config = {c: st.column_config.NumberColumn(format="%,d") for c in all_col_names}
+
                     if metric_col is None:
                         disp_cols = ['부대명', '매출등급'] + all_col_names
                         disp = pattern_df[disp_cols].head(15).copy()
-                        for col in all_col_names:
-                            disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
-                        st.dataframe(disp, use_container_width=True)
+                        st.dataframe(disp, use_container_width=True, column_config=base_col_config)
                         st.markdown("<br>", unsafe_allow_html=True)
                         return
 
@@ -614,13 +625,10 @@ if raw_df is not None:
                     disp = pattern_df[disp_cols].head(15).copy()
 
                     metric_formatted = disp[metric_col].apply(metric_fmt)
-
-                    for col in all_col_names:
-                        disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
-
                     disp[metric_col] = metric_formatted
                     disp = disp.rename(columns={metric_col: metric_label})
-                    st.dataframe(disp, use_container_width=True)
+                    
+                    st.dataframe(disp, use_container_width=True, column_config=base_col_config)
                     st.markdown("<br>", unsafe_allow_html=True)
 
                 render_pattern_block(
