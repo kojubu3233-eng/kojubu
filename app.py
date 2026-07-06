@@ -346,21 +346,26 @@ if raw_df is not None:
             g3.metric("🔵 저매출 부대", f"{len(unit_compare[unit_compare['매출등급']=='🔵 저매출'])}개")
 
             if not grade_df.empty:
-                top30 = grade_df.head(30)
-                fig_grade = px.bar(top30, x='부대명', y='연매출',
-                    color='매출등급',
-                    color_discrete_map=COLOR_MAP,
-                    title="부대별 연매출 (상위 30개 표시)",
-                    text=top30['연매출'].apply(fmt_m_abs))
-                fig_grade.update_traces(textposition='outside', textfont_size=13)
-                fig_grade.update_layout(height=460, yaxis_tickformat=',', yaxis_title='연매출 (원)')
-                fig_grade.update_xaxes(tickangle=-40)
-                st.plotly_chart(fig_grade, use_container_width=True)
+                # 30개 제한을 해제하고, 'active_months'를 참조하여 3개월 이상 납품 부대만 필터링
+                target_df = grade_df[grade_df['부대명'].map(active_months) >= 3]
+                
+                if not target_df.empty:
+                    fig_grade = px.bar(target_df, x='부대명', y='연매출',
+                        color='매출등급',
+                        color_discrete_map=COLOR_MAP,
+                        title="부대별 연매출 (연 3개월 이상 납품 부대 표시)",
+                        text=target_df['연매출'].apply(fmt_m_abs))
+                    fig_grade.update_traces(textposition='outside', textfont_size=13)
+                    fig_grade.update_layout(height=460, yaxis_tickformat=',', yaxis_title='연매출 (원)')
+                    fig_grade.update_xaxes(tickangle=-40)
+                    st.plotly_chart(fig_grade, use_container_width=True)
 
-                disp2 = grade_df[['부대명', '매출등급', '연매출', '당월매출']].copy()
-                disp2['연매출']   = disp2['연매출'].apply(lambda x: f"{x:,.0f}")
-                disp2['당월매출'] = disp2['당월매출'].apply(lambda x: f"{x:,.0f}")
-                st.dataframe(disp2, use_container_width=True)
+                    disp2 = target_df[['부대명', '매출등급', '연매출', '당월매출']].copy()
+                    disp2['연매출']   = disp2['연매출'].apply(lambda x: f"{x:,.0f}")
+                    disp2['당월매출'] = disp2['당월매출'].apply(lambda x: f"{x:,.0f}")
+                    st.dataframe(disp2, use_container_width=True)
+                else:
+                    st.info("3개월 이상 납품한 부대가 없습니다.")
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
