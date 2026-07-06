@@ -135,10 +135,9 @@ if raw_df is not None:
                     pivot_df.columns = [f"{int(c)}월" for c in pivot_df.columns]
                     pivot_df['총합계'] = pivot_df.sum(axis=1)
                     pivot_df = pivot_df.sort_values('총합계', ascending=False)
-                    safe_pivot_df = pivot_df.copy()
-                    for col in safe_pivot_df.columns:
-                        safe_pivot_df[col] = safe_pivot_df[col].apply(lambda x: f"{x:,.0f}")
-                    st.dataframe(safe_pivot_df, use_container_width=True)
+                    
+                    # 문자열 변환 방식에서 style.format 적용 방식으로 수정 (정렬 유지용)
+                    st.dataframe(pivot_df.style.format("{:,.0f}"), use_container_width=True)
 
             st.markdown("---")
             st.header("2. 매출 상세 분석 및 부대별 현황")
@@ -148,8 +147,10 @@ if raw_df is not None:
             unit_pivot.columns = [f"{int(c)}월" for c in unit_pivot.columns]
             unit_pivot['총매출'] = unit_pivot.sum(axis=1)
             unit_pivot = unit_pivot.sort_index(ascending=True)
-            safe_unit_pivot = unit_pivot.map(lambda x: f"{x:,.0f}")
-            st.dataframe(safe_unit_pivot, use_container_width=True)
+            
+            # 문자열 변환 방식에서 style.format 적용 방식으로 수정
+            st.dataframe(unit_pivot.style.format("{:,.0f}"), use_container_width=True)
+            
             st.download_button(label="📥 부대별 현황 엑셀 다운로드",
                 data=unit_pivot.to_csv().encode('utf-8-sig'),
                 file_name='부대별_매출_현황.csv', mime='text/csv')
@@ -237,10 +238,13 @@ if raw_df is not None:
                     if raw_cat:  final_table_df = final_table_df[final_table_df['구분'].isin(raw_cat)]
                     if raw_item: final_table_df = final_table_df[final_table_df['품목'].isin(raw_item)]
                     st.write(f"결과: **{len(final_table_df)}건**")
-                    display_df = final_table_df.copy()
-                    for col in ['수량', '단가(Vat별도)', '매출']:
-                        display_df[col] = display_df[col].apply(lambda x: f"{x:,.0f}")
-                    st.dataframe(display_df, use_container_width=True)
+                    
+                    # 문자열 변환 방식에서 style.format 적용 방식으로 수정
+                    st.dataframe(final_table_df.style.format({
+                        '수량': '{:,.0f}',
+                        '단가(Vat별도)': '{:,.0f}',
+                        '매출': '{:,.0f}'
+                    }), use_container_width=True)
             else:
                 st.warning("선택하신 필터 조건과 일치하는 데이터가 없습니다.")
 
@@ -354,10 +358,12 @@ if raw_df is not None:
                 fig_grade.update_xaxes(tickangle=-40)
                 st.plotly_chart(fig_grade, use_container_width=True)
 
-                disp2 = grade_df[['부대명', '매출등급', '연매출', '당월매출']].copy()
-                disp2['연매출']   = disp2['연매출'].apply(lambda x: f"{x:,.0f}")
-                disp2['당월매출'] = disp2['당월매출'].apply(lambda x: f"{x:,.0f}")
-                st.dataframe(disp2, use_container_width=True)
+                disp2 = grade_df[['부대명', '매출등급', '연매출', '당월매출']]
+                # 문자열 변환 방식에서 style.format 적용 방식으로 수정
+                st.dataframe(disp2.style.format({
+                    '연매출': '{:,.0f}',
+                    '당월매출': '{:,.0f}'
+                }), use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
@@ -392,12 +398,14 @@ if raw_df is not None:
                 fig_trend.update_xaxes(tickangle=-40)
                 st.plotly_chart(fig_trend, use_container_width=True)
 
-                disp = trend_df[['부대명', '매출등급', '전월매출', '당월매출', '증감액', '증감율(%)']].copy()
-                for c in ['전월매출', '당월매출']:
-                    disp[c] = disp[c].apply(lambda x: f"{x:,.0f}")
-                disp['증감액']    = disp['증감액'].apply(lambda x: f"{x:+,.0f}")
-                disp['증감율(%)'] = disp['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
-                st.dataframe(disp, use_container_width=True)
+                disp = trend_df[['부대명', '매출등급', '전월매출', '당월매출', '증감액', '증감율(%)']]
+                # 문자열 변환 방식에서 style.format 적용 방식으로 수정
+                st.dataframe(disp.style.format({
+                    '전월매출': '{:,.0f}',
+                    '당월매출': '{:,.0f}',
+                    '증감액': '{:+,.0f}',
+                    '증감율(%)': '{:+.1f}%'
+                }), use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
@@ -432,11 +440,13 @@ if raw_df is not None:
                     fig_surge.update_xaxes(tickangle=-40)
                     st.plotly_chart(fig_surge, use_container_width=True)
 
-                disp3 = surge_df[['부대명', '매출등급', '변동유형', '추세', '전월매출', '당월매출', '증감율(%)']].copy()
-                disp3['전월매출']  = disp3['전월매출'].apply(lambda x: f"{x:,.0f}")
-                disp3['당월매출']  = disp3['당월매출'].apply(lambda x: f"{x:,.0f}")
-                disp3['증감율(%)'] = disp3['증감율(%)'].apply(lambda x: f"{x:+.1f}%")
-                st.dataframe(disp3, use_container_width=True)
+                disp3 = surge_df[['부대명', '매출등급', '변동유형', '추세', '전월매출', '당월매출', '증감율(%)']]
+                # 문자열 변환 방식에서 style.format 적용 방식으로 수정
+                st.dataframe(disp3.style.format({
+                    '전월매출': '{:,.0f}',
+                    '당월매출': '{:,.0f}',
+                    '증감율(%)': '{:+.1f}%'
+                }), use_container_width=True)
             else:
                 st.info("해당 조건의 부대가 없습니다.")
 
@@ -578,25 +588,21 @@ if raw_df is not None:
                     # metric_col이 없으면 부대명+매출등급+1월~기준월 매출만 표시 (지표 컬럼 없음)
                     if metric_col is None:
                         disp_cols = ['부대명', '매출등급'] + all_col_names
-                        disp = pattern_df[disp_cols].head(15).copy()
-                        for col in all_col_names:
-                            disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
-                        st.dataframe(disp, use_container_width=True)
+                        disp = pattern_df[disp_cols].head(15)
+                        
+                        format_dict = {col: '{:,.0f}' for col in all_col_names}
+                        st.dataframe(disp.style.format(format_dict), use_container_width=True)
                         st.markdown("<br>", unsafe_allow_html=True)
                         return
 
                     # metric_col이 있으면 기존처럼 판단지표 컬럼도 함께 표시
                     disp_cols = ['부대명', '매출등급'] + all_col_names + [metric_col]
-                    disp = pattern_df[disp_cols].head(15).copy()
+                    disp = pattern_df[disp_cols].head(15).rename(columns={metric_col: metric_label})
 
-                    metric_formatted = disp[metric_col].apply(metric_fmt)
-
-                    for col in all_col_names:
-                        disp[col] = disp[col].apply(lambda x: f"{x:,.0f}")
-
-                    disp[metric_col] = metric_formatted
-                    disp = disp.rename(columns={metric_col: metric_label})
-                    st.dataframe(disp, use_container_width=True)
+                    format_dict = {col: '{:,.0f}' for col in all_col_names}
+                    format_dict[metric_label] = metric_fmt
+                    
+                    st.dataframe(disp.style.format(format_dict), use_container_width=True)
                     st.markdown("<br>", unsafe_allow_html=True)
 
                 # ── ① 지속 하락 부대 ── (지표 컬럼 없이 1월~기준월 매출만)
