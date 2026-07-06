@@ -141,6 +141,26 @@ if raw_df is not None:
                         safe_pivot_df[col] = safe_pivot_df[col].apply(lambda x: f"{x:,.0f}")
                     st.dataframe(safe_pivot_df, use_container_width=True)
 
+                    # --- [추가된 대안 1: 셀 클릭 대용 선택 상자] ---
+                    st.markdown("---")
+                    st.markdown(f"**🔍 [{category}] 특정 품목/월별 발주 부대 조회**")
+                    c_sel1, c_sel2 = st.columns(2)
+                    with c_sel1:
+                        sel_item = st.selectbox("📌 품목 선택", options=safe_sorted(cat_df['품목'].unique()), key=f"item_{category}")
+                    with c_sel2:
+                        sel_month = st.selectbox("📅 월 선택", options=sorted(cat_df['월'].unique()), format_func=lambda x: f"{x}월", key=f"month_{category}")
+                    
+                    detail_df = cat_df[(cat_df['품목'] == sel_item) & (cat_df['월'] == sel_month)]
+                    if not detail_df.empty:
+                        st.success(f"✅ {sel_month}월에 '{sel_item}' 품목을 발주한 부대 목록입니다.")
+                        disp_detail = detail_df[['부대명', '수량', '단가(Vat별도)', '매출']].copy()
+                        for c in ['수량', '단가(Vat별도)', '매출']:
+                            disp_detail[c] = disp_detail[c].apply(lambda x: f"{x:,.0f}" if isinstance(x, (int, float)) else x)
+                        st.dataframe(disp_detail, use_container_width=True)
+                    else:
+                        st.info(f"ℹ️ {sel_month}월에 '{sel_item}' 품목을 발주한 내역이 없습니다.")
+                    # -----------------------------------------------
+
             st.markdown("---")
             st.header("2. 매출 상세 분석 및 부대별 현황")
 
