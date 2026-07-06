@@ -71,7 +71,6 @@ if raw_df is not None:
         active_months = df.groupby('부대명')['월'].nunique()
         unit_avg      = unit_annual / active_months
 
-        # ── 강제 1:1:1 분할 로직 (pd.qcut 활용) ──
         if len(unit_annual) >= 3:
             unit_ranks = unit_annual.rank(method='first')
             unit_grades = pd.qcut(unit_ranks, q=3, labels=['🔵 저매출', '🟡 중매출', '🔴 고매출'])
@@ -140,6 +139,29 @@ if raw_df is not None:
                     for col in safe_pivot_df.columns:
                         safe_pivot_df[col] = safe_pivot_df[col].apply(lambda x: f"{x:,.0f}")
                     st.dataframe(safe_pivot_df, use_container_width=True)
+
+                    # [수정된 상세 조회 기능]
+                    st.markdown("---")
+                    st.write(f"💡 **[{category}] 품목/월별 상세 발주 부대 조회**")
+                    d_col1, d_col2 = st.columns(2)
+                    with d_col1:
+                        s_item = st.selectbox("📌 품목 선택", cat_df['품목'].unique(), key=f"item_{category}")
+                    with d_col2:
+                        s_month = st.selectbox("📅 월 선택", sorted(cat_df['월'].unique()), format_func=lambda x: f"{x}월", key=f"mon_{category}")
+                    
+                    drill_df = cat_df[(cat_df['품목'] == s_item) & (cat_df['월'] == s_month)].copy()
+                    if not drill_df.empty:
+                        st.success(f"✅ **{s_month}월 - {s_item}** 발주 내역 (총 {len(drill_df)}건)")
+                        
+                        # 납품일을 수량 좌측에 배치하도록 열 순서만 변경
+                        disp_drill = drill_df[['부대명', '납품일', '수량', '매출']].copy()
+                        disp_drill['수량'] = disp_drill['수량'].apply(lambda x: f"{x:,.0f}")
+                        disp_drill['매출'] = disp_drill['매출'].apply(lambda x: f"{x:,.0f}원")
+                        disp_drill = disp_drill.reset_index(drop=True)
+                        
+                        st.dataframe(disp_drill, use_container_width=True)
+                    else:
+                        st.info(f"텅~ {s_month}월에는 '{s_item}' 발주 내역이 없습니다.")
 
             st.markdown("---")
             st.header("2. 매출 상세 분석 및 부대별 현황")
@@ -273,9 +295,6 @@ if raw_df is not None:
             unit_compare['연매출']    = unit_compare['부대명'].map(unit_annual).fillna(0)
             unit_compare['월평균매출'] = unit_compare['부대명'].map(unit_avg).fillna(0)
             unit_compare['매출등급']  = unit_compare['부대명'].map(grade_by_rank)
-            
-            # 당월매출 0원 삭제 코드 제거 (전체 부대 유지)
-            # unit_compare = unit_compare[unit_compare['당월매출'] > 0].reset_index(drop=True)
 
             all_months_sorted = sorted(unit_pivot_raw.columns.tolist())
             months_up_to_base = [m for m in all_months_sorted if m <= selected_base_month]
@@ -305,7 +324,7 @@ if raw_df is not None:
 
             def surge_type(pct, prev, curr):
                 if prev == 0 and curr > 0: return '신규'
-                if prev == 0 and curr == 0: return '➡️ 유지' # 0원 부대가 남으면서 추가된 방어코드
+                if prev == 0 and curr == 0: return '➡️ 유지' 
                 if pct >= SURGE_THRESHOLD: return '📈 급증'
                 if pct <= -SURGE_THRESHOLD: return '📉 급감'
                 return '➡️ 유지'
@@ -330,11 +349,14 @@ if raw_df is not None:
             with col_b2: kw_grade = st.text_input("🔍 부대명 검색", key="kw_grade", placeholder="부대명 입력...")
             with col_c2: sort_grade = st.selectbox("정렬 기준", ["매출액 내림차순", "매출액 오름차순", "부대명 가나다순", "부대명 역순"], key="sort_grade")
 
+            # 1회성 제외 로직 적용
+            valid_units = active_months[active_months >= 2].index
             grade_df = unit_compare.copy()
+            grade_df = grade_df[grade_df['부대명'].isin(valid_units)]
+            
             if filter_grade != "전체": grade_df = grade_df[grade_df['매출등급'] == filter_grade]
             grade_df = keyword_filter(grade_df, kw_grade)
             
-            # 필터에 따른 정렬 적용
             if sort_grade == "매출액 내림차순": grade_df = grade_df.sort_values('연매출', ascending=False)
             elif sort_grade == "매출액 오름차순": grade_df = grade_df.sort_values('연매출', ascending=True)
             elif sort_grade == "부대명 가나다순": grade_df = grade_df.sort_values('부대명', ascending=True)
@@ -346,12 +368,11 @@ if raw_df is not None:
             g3.metric("🔵 저매출 부대", f"{len(unit_compare[unit_compare['매출등급']=='🔵 저매출'])}개")
 
             if not grade_df.empty:
-                top30 = grade_df.head(30)
-                fig_grade = px.bar(top30, x='부대명', y='연매출',
+                fig_grade = px.bar(grade_df, x='부대명', y='연매출',
                     color='매출등급',
                     color_discrete_map=COLOR_MAP,
-                    title="부대별 연매출 (상위 30개 표시)",
-                    text=top30['연매출'].apply(fmt_m_abs))
+                    title="부대별 연매출 (전체 활성 부대 표시)",
+                    text=grade_df['연매출'].apply(fmt_m_abs))
                 fig_grade.update_traces(textposition='outside', textfont_size=13)
                 fig_grade.update_layout(height=460, yaxis_tickformat=',', yaxis_title='연매출 (원)')
                 fig_grade.update_xaxes(tickangle=-40)
@@ -379,7 +400,6 @@ if raw_df is not None:
             elif filter_trend == "감소": trend_df = trend_df[trend_df['증감액'] < 0]
             trend_df = keyword_filter(trend_df, kw_trend)
 
-            # 필터에 따른 정렬 적용
             if sort_trend == "증감액 내림차순": trend_df = trend_df.sort_values('증감액', ascending=False)
             elif sort_trend == "증감액 오름차순": trend_df = trend_df.sort_values('증감액', ascending=True)
             elif sort_trend == "부대명 가나다순": trend_df = trend_df.sort_values('부대명', ascending=True)
@@ -425,7 +445,6 @@ if raw_df is not None:
             if filter_surge != "전체": surge_df = surge_df[surge_df['변동유형'] == filter_surge]
             surge_df = keyword_filter(surge_df, kw_surge)
 
-            # 필터에 따른 정렬 적용
             if sort_surge == "증감액 내림차순": surge_df = surge_df.sort_values('증감액', ascending=False)
             elif sort_surge == "증감액 오름차순": surge_df = surge_df.sort_values('증감액', ascending=True)
             elif sort_surge == "부대명 가나다순": surge_df = surge_df.sort_values('부대명', ascending=True)
