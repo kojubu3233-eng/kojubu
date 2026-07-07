@@ -135,12 +135,11 @@ if raw_df is not None:
                     pivot_df.columns = [f"{int(c)}월" for c in pivot_df.columns]
                     pivot_df['총합계'] = pivot_df.sum(axis=1)
                     pivot_df = pivot_df.sort_values('총합계', ascending=False)
-                    safe_pivot_df = pivot_df.copy()
-                    for col in safe_pivot_df.columns:
-                        safe_pivot_df[col] = safe_pivot_df[col].apply(lambda x: f"{x:,.0f}")
-                    st.dataframe(safe_pivot_df, use_container_width=True)
+                    
+                    # 수정한 부분: 문자열 변환 코드를 제거하고 숫자 형태를 유지하며 콤마 포맷만 씌워 정렬 기능 복구
+                    st.dataframe(pivot_df.style.format("{:,.0f}"), use_container_width=True)
 
-                    # [수정된 상세 조회 기능]
+                    # 상세 조회 기능
                     st.markdown("---")
                     st.write(f"💡 **[{category}] 품목/월별 상세 발주 부대 조회**")
                     d_col1, d_col2 = st.columns(2)
@@ -153,7 +152,7 @@ if raw_df is not None:
                     if not drill_df.empty:
                         st.success(f"✅ **{s_month}월 - {s_item}** 발주 내역 (총 {len(drill_df)}건)")
                         
-                        # 납품일을 수량 좌측에 배치하도록 열 순서만 변경
+                        # 납품일을 수량 좌측에 배치하도록 열 순서 변경
                         disp_drill = drill_df[['부대명', '납품일', '수량', '매출']].copy()
                         disp_drill['수량'] = disp_drill['수량'].apply(lambda x: f"{x:,.0f}")
                         disp_drill['매출'] = disp_drill['매출'].apply(lambda x: f"{x:,.0f}원")
