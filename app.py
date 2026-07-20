@@ -120,22 +120,28 @@ if raw_df is not None:
 
             with rank_col1:
                 st.markdown("**🔴 매출 상위 20개 품목**")
-                fig_top20 = px.bar(top20_items.sort_values('총매출', ascending=True),
+                top20_sorted = top20_items.sort_values('총매출', ascending=True)
+                fig_top20 = px.bar(top20_sorted,
                     x='총매출', y='구분-품목', orientation='h',
-                    text=top20_items.sort_values('총매출', ascending=True)['총매출'].apply(lambda x: f"{x:,.0f}원"),
+                    text=top20_sorted['총매출'].apply(lambda x: f"{x:,.0f}원"),
                     color_discrete_sequence=['#d9534f'])
-                fig_top20.update_traces(textposition='outside')
-                fig_top20.update_layout(height=560, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)')
+                fig_top20.update_traces(textposition='outside', cliponaxis=False)
+                fig_top20.update_layout(height=620, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)',
+                    margin=dict(l=10, r=140, t=30, b=40),
+                    xaxis_range=[0, top20_sorted['총매출'].max() * 1.35])
                 st.plotly_chart(fig_top20, use_container_width=True)
 
             with rank_col2:
                 st.markdown("**🔵 매출 하위 20개 품목**")
-                fig_bottom20 = px.bar(bottom20_items.sort_values('총매출', ascending=False),
+                bottom20_sorted = bottom20_items.sort_values('총매출', ascending=False)
+                fig_bottom20 = px.bar(bottom20_sorted,
                     x='총매출', y='구분-품목', orientation='h',
-                    text=bottom20_items.sort_values('총매출', ascending=False)['총매출'].apply(lambda x: f"{x:,.0f}원"),
+                    text=bottom20_sorted['총매출'].apply(lambda x: f"{x:,.0f}원"),
                     color_discrete_sequence=['#0275d8'])
-                fig_bottom20.update_traces(textposition='outside')
-                fig_bottom20.update_layout(height=560, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)')
+                fig_bottom20.update_traces(textposition='outside', cliponaxis=False)
+                fig_bottom20.update_layout(height=620, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)',
+                    margin=dict(l=10, r=140, t=30, b=40),
+                    xaxis_range=[0, bottom20_sorted['총매출'].max() * 1.35])
                 st.plotly_chart(fig_bottom20, use_container_width=True)
 
             rank_table_col1, rank_table_col2 = st.columns(2)
