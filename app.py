@@ -148,10 +148,11 @@ if raw_df is not None:
                     return None
                 return cd[0], cd[1]
 
-            rank_col1, rank_col2 = st.columns(2)
+            # ── 상위 20 (좌) + 상세 (우) ──
+            st.markdown("**🔴 매출 상위 20개 품목**  (막대를 클릭하면 우측에 월별 상세가 표시됩니다)")
+            top_chart_col, top_detail_col = st.columns([1.1, 1])
 
-            with rank_col1:
-                st.markdown("**🔴 매출 상위 20개 품목**  (막대를 클릭하면 아래에 월별 상세가 표시됩니다)")
+            with top_chart_col:
                 top20_sorted = top20_items.sort_values('총매출', ascending=True)
                 fig_top20 = px.bar(top20_sorted,
                     x='총매출', y='구분-품목', orientation='h',
@@ -165,13 +166,21 @@ if raw_df is not None:
                 top20_event = st.plotly_chart(fig_top20, use_container_width=True,
                     on_select="rerun", selection_mode="points", key="top20_chart")
 
+            with top_detail_col:
                 sel_top = extract_selected_item(top20_event)
                 if sel_top:
-                    with st.expander(f"📅 '{sel_top[0]} · {sel_top[1]}' 월별 매출 상세", expanded=True):
-                        render_item_month_detail(sel_top[0], sel_top[1], '#d9534f')
+                    st.markdown(f"**📅 '{sel_top[0]} · {sel_top[1]}' 월별 매출 상세**")
+                    render_item_month_detail(sel_top[0], sel_top[1], '#d9534f')
+                else:
+                    st.info("👈 좌측 그래프의 막대를 클릭하면 해당 품목의 월별 매출 상세가 여기에 표시됩니다.")
 
-            with rank_col2:
-                st.markdown("**🔵 매출 하위 20개 품목**  (막대를 클릭하면 아래에 월별 상세가 표시됩니다)")
+            st.markdown("---")
+
+            # ── 하위 20 (좌) + 상세 (우) ──
+            st.markdown("**🔵 매출 하위 20개 품목**  (막대를 클릭하면 우측에 월별 상세가 표시됩니다)")
+            bottom_chart_col, bottom_detail_col = st.columns([1.1, 1])
+
+            with bottom_chart_col:
                 bottom20_sorted = bottom20_items.sort_values('총매출', ascending=False)
                 fig_bottom20 = px.bar(bottom20_sorted,
                     x='총매출', y='구분-품목', orientation='h',
@@ -185,11 +194,15 @@ if raw_df is not None:
                 bottom20_event = st.plotly_chart(fig_bottom20, use_container_width=True,
                     on_select="rerun", selection_mode="points", key="bottom20_chart")
 
+            with bottom_detail_col:
                 sel_bottom = extract_selected_item(bottom20_event)
                 if sel_bottom:
-                    with st.expander(f"📅 '{sel_bottom[0]} · {sel_bottom[1]}' 월별 매출 상세", expanded=True):
-                        render_item_month_detail(sel_bottom[0], sel_bottom[1], '#0275d8')
+                    st.markdown(f"**📅 '{sel_bottom[0]} · {sel_bottom[1]}' 월별 매출 상세**")
+                    render_item_month_detail(sel_bottom[0], sel_bottom[1], '#0275d8')
+                else:
+                    st.info("👈 좌측 그래프의 막대를 클릭하면 해당 품목의 월별 매출 상세가 여기에 표시됩니다.")
 
+            st.markdown("---")
             rank_table_col1, rank_table_col2 = st.columns(2)
             with rank_table_col1:
                 disp_top20 = top20_items[['구분', '품목', '총매출']].copy()
