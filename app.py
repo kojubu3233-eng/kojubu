@@ -116,33 +116,79 @@ if raw_df is not None:
             top20_items = overall_item_summary.sort_values('총매출', ascending=False).head(20)
             bottom20_items = overall_item_summary.sort_values('총매출', ascending=True).head(20)
 
+            # 품목별 월별 매출 상세 (막대 클릭 시 조회용)
+            item_month_detail = df.groupby(['구분', '품목', '월'])['매출'].sum().reset_index()
+
+            def render_item_month_detail(sel_cat, sel_item, color):
+                d = item_month_detail[(item_month_detail['구분'] == sel_cat) & (item_month_detail['품목'] == sel_item)].sort_values('월')
+                if d.empty:
+                    st.info("해당 품목의 월별 데이터가 없습니다.")
+                    return
+                fig_detail = px.bar(d, x='월', y='매출',
+                    text=d['매출'].apply(lambda x: f"{x:,.0f}원" if x > 0 else ""),
+                    color_discrete_sequence=[color])
+                fig_detail.update_traces(textposition='outside')
+                fig_detail.update_xaxes(dtick=1, title='월')
+                fig_detail.update_yaxes(title='매출 (원)')
+                fig_detail.update_layout(height=320, showlegend=False)
+                st.plotly_chart(fig_detail, use_container_width=True)
+                disp_d = d[['월', '매출']].copy()
+                disp_d['월'] = disp_d['월'].apply(lambda x: f"{x}월")
+                disp_d['매출'] = disp_d['매출'].apply(lambda x: f"{x:,.0f}원")
+                st.dataframe(disp_d.reset_index(drop=True), use_container_width=True, hide_index=True)
+
+            def extract_selected_item(event):
+                if not event:
+                    return None
+                points = event.get("selection", {}).get("points", [])
+                if not points:
+                    return None
+                cd = points[0].get("customdata")
+                if not cd or len(cd) < 2:
+                    return None
+                return cd[0], cd[1]
+
             rank_col1, rank_col2 = st.columns(2)
 
             with rank_col1:
-                st.markdown("**🔴 매출 상위 20개 품목**")
+                st.markdown("**🔴 매출 상위 20개 품목**  (막대를 클릭하면 아래에 월별 상세가 표시됩니다)")
                 top20_sorted = top20_items.sort_values('총매출', ascending=True)
                 fig_top20 = px.bar(top20_sorted,
                     x='총매출', y='구분-품목', orientation='h',
                     text=top20_sorted['총매출'].apply(lambda x: f"{x:,.0f}원"),
-                    color_discrete_sequence=['#d9534f'])
+                    color_discrete_sequence=['#d9534f'],
+                    custom_data=['구분', '품목'])
                 fig_top20.update_traces(textposition='outside', cliponaxis=False)
                 fig_top20.update_layout(height=620, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)',
                     margin=dict(l=10, r=140, t=30, b=40),
                     xaxis_range=[0, top20_sorted['총매출'].max() * 1.35])
-                st.plotly_chart(fig_top20, use_container_width=True)
+                top20_event = st.plotly_chart(fig_top20, use_container_width=True,
+                    on_select="rerun", selection_mode="points", key="top20_chart")
+
+                sel_top = extract_selected_item(top20_event)
+                if sel_top:
+                    with st.expander(f"📅 '{sel_top[0]} · {sel_top[1]}' 월별 매출 상세", expanded=True):
+                        render_item_month_detail(sel_top[0], sel_top[1], '#d9534f')
 
             with rank_col2:
-                st.markdown("**🔵 매출 하위 20개 품목**")
+                st.markdown("**🔵 매출 하위 20개 품목**  (막대를 클릭하면 아래에 월별 상세가 표시됩니다)")
                 bottom20_sorted = bottom20_items.sort_values('총매출', ascending=False)
                 fig_bottom20 = px.bar(bottom20_sorted,
                     x='총매출', y='구분-품목', orientation='h',
                     text=bottom20_sorted['총매출'].apply(lambda x: f"{x:,.0f}원"),
-                    color_discrete_sequence=['#0275d8'])
+                    color_discrete_sequence=['#0275d8'],
+                    custom_data=['구분', '품목'])
                 fig_bottom20.update_traces(textposition='outside', cliponaxis=False)
                 fig_bottom20.update_layout(height=620, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)',
                     margin=dict(l=10, r=140, t=30, b=40),
                     xaxis_range=[0, bottom20_sorted['총매출'].max() * 1.35])
-                st.plotly_chart(fig_bottom20, use_container_width=True)
+                bottom20_event = st.plotly_chart(fig_bottom20, use_container_width=True,
+                    on_select="rerun", selection_mode="points", key="bottom20_chart")
+
+                sel_bottom = extract_selected_item(bottom20_event)
+                if sel_bottom:
+                    with st.expander(f"📅 '{sel_bottom[0]} · {sel_bottom[1]}' 월별 매출 상세", expanded=True):
+                        render_item_month_detail(sel_bottom[0], sel_bottom[1], '#0275d8')
 
             rank_table_col1, rank_table_col2 = st.columns(2)
             with rank_table_col1:
