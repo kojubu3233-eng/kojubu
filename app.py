@@ -105,8 +105,76 @@ if raw_df is not None:
             fig_total.update_yaxes(title="매출액 (원)")
             st.plotly_chart(fig_total, use_container_width=True)
 
+            st.markdown("---")
+            st.subheader("🏆 전체 품목 매출 순위 (구분 통합 · 상위 20 / 하위 20)")
+            st.caption("모든 [구분]의 품목을 하나로 합산하여 매출 상위 20개, 하위 20개 품목을 보여줍니다. (같은 품목명이라도 [구분]이 다르면 별도로 집계됩니다)")
+
+            overall_item_summary = df.groupby(['구분', '품목'])['매출'].sum().reset_index()
+            overall_item_summary.columns = ['구분', '품목', '총매출']
+            overall_item_summary['구분-품목'] = overall_item_summary['구분'] + ' · ' + overall_item_summary['품목']
+
+            top20_items = overall_item_summary.sort_values('총매출', ascending=False).head(20)
+            bottom20_items = overall_item_summary.sort_values('총매출', ascending=True).head(20)
+
+            rank_col1, rank_col2 = st.columns(2)
+
+            with rank_col1:
+                st.markdown("**🔴 매출 상위 20개 품목**")
+                fig_top20 = px.bar(top20_items.sort_values('총매출', ascending=True),
+                    x='총매출', y='구분-품목', orientation='h',
+                    text=top20_items.sort_values('총매출', ascending=True)['총매출'].apply(lambda x: f"{x:,.0f}원"),
+                    color_discrete_sequence=['#d9534f'])
+                fig_top20.update_traces(textposition='outside')
+                fig_top20.update_layout(height=560, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)')
+                st.plotly_chart(fig_top20, use_container_width=True)
+
+            with rank_col2:
+                st.markdown("**🔵 매출 하위 20개 품목**")
+                fig_bottom20 = px.bar(bottom20_items.sort_values('총매출', ascending=False),
+                    x='총매출', y='구분-품목', orientation='h',
+                    text=bottom20_items.sort_values('총매출', ascending=False)['총매출'].apply(lambda x: f"{x:,.0f}원"),
+                    color_discrete_sequence=['#0275d8'])
+                fig_bottom20.update_traces(textposition='outside')
+                fig_bottom20.update_layout(height=560, showlegend=False, yaxis_title=None, xaxis_title='총매출 (원)')
+                st.plotly_chart(fig_bottom20, use_container_width=True)
+
+            rank_table_col1, rank_table_col2 = st.columns(2)
+            with rank_table_col1:
+                disp_top20 = top20_items[['구분', '품목', '총매출']].copy()
+                disp_top20['총매출'] = disp_top20['총매출'].apply(lambda x: f"{x:,.0f}")
+                st.dataframe(disp_top20.reset_index(drop=True), use_container_width=True)
+            with rank_table_col2:
+                disp_bottom20 = bottom20_items[['구분', '품목', '총매출']].copy()
+                disp_bottom20['총매출'] = disp_bottom20['총매출'].apply(lambda x: f"{x:,.0f}")
+                st.dataframe(disp_bottom20.reset_index(drop=True), use_container_width=True)
+
+            rank_dl_df = pd.concat([
+                top20_items[['구분', '품목', '총매출']].assign(순위구분='상위 20'),
+                bottom20_items[['구분', '품목', '총매출']].assign(순위구분='하위 20'),
+            ])
+            st.download_button(
+                label="📥 전체 품목 매출 순위(상위20·하위20) 엑셀 다운로드",
+                data=rank_dl_df.to_csv(index=False).encode('utf-8-sig'),
+                file_name='전체_품목_매출_순위_상위20_하위20.csv',
+                mime='text/csv'
+            )
+
+            st.markdown("---")
             st.subheader("💡 계층형 데이터 요약 (구분별 ➔ 품목별)")
             st.caption("**[구분]** 항목을 클릭하면 품목별 월별 매출 피벗을 확인할 수 있습니다.")
+
+            full_hierarchy_pivot = pd.pivot_table(df, values='매출', index=['구분', '품목'], columns='월',
+                aggfunc='sum', fill_value=0)
+            full_hierarchy_pivot.columns = [f"{int(c)}월" for c in full_hierarchy_pivot.columns]
+            full_hierarchy_pivot['총합계'] = full_hierarchy_pivot.sum(axis=1)
+            full_hierarchy_pivot = full_hierarchy_pivot.reset_index()
+            full_hierarchy_pivot = full_hierarchy_pivot.sort_values(['구분', '총합계'], ascending=[True, False])
+            st.download_button(
+                label="📥 계층형 데이터 요약(구분별·품목별) 엑셀 다운로드",
+                data=full_hierarchy_pivot.to_csv(index=False).encode('utf-8-sig'),
+                file_name='계층형_데이터_요약_구분별_품목별.csv',
+                mime='text/csv'
+            )
 
             category_summary = df.groupby('구분')['매출'].sum().reset_index()
             category_summary.columns = ['구분', '총매출']
