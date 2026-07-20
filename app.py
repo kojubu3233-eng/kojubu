@@ -119,8 +119,11 @@ if raw_df is not None:
             # 품목별 월별 매출 상세 (막대 클릭 시 조회용)
             item_month_detail = df.groupby(['구분', '품목', '월'])['매출'].sum().reset_index()
 
+            all_months_full = pd.DataFrame({'월': range(int(df['월'].min()), int(df['월'].max()) + 1)})
+
             def render_item_month_detail(sel_cat, sel_item, color):
-                d = item_month_detail[(item_month_detail['구분'] == sel_cat) & (item_month_detail['품목'] == sel_item)].sort_values('월')
+                d = item_month_detail[(item_month_detail['구분'] == sel_cat) & (item_month_detail['품목'] == sel_item)]
+                d = pd.merge(all_months_full, d[['월', '매출']], on='월', how='left').fillna(0).sort_values('월')
                 if d.empty:
                     st.info("해당 품목의 월별 데이터가 없습니다.")
                     return
