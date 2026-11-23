@@ -4,7 +4,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import numpy as np
-from auto.units import UNIT_MASTER, MIN_DELIVERIES, normalize_unit, delivery_key
+from auto.units import UNIT_MASTER, MIN_DELIVERIES, normalize_unit, delivery_key, closed_through_month
+from datetime import datetime, timedelta, timezone
 
 def safe_sorted(iterable):
     return sorted([str(x) for x in iterable if str(x) not in ('nan', 'None', '')])
@@ -97,8 +98,13 @@ if raw_df is not None:
 
         not_master = df[~df['부대명'].isin(UNIT_MASTER)].groupby('부대명')['매출'].sum()
         few_delivery = delivery_cnt[delivery_cnt < MIN_DELIVERIES]
+        try:
+            _closed = closed_through_month(st.secrets.get("CLOSED_THROUGH_MONTH"))
+        except Exception:
+            _closed = closed_through_month()
         st.sidebar.markdown("---")
         st.sidebar.caption(
+            f"🗓️ 마감 월(~{_closed}월): 확정 매출 / 미마감 월({_closed + 1}월~): 확정 + 예정\n\n"
             f"📌 부대별 분석 대상 {len(valid_unit_names)}개 부대\n\n"
             f"- 합계 매출에만 포함(부대별정보에 없음): "
             + (", ".join(f"{k}({v:,.0f}원)" for k, v in not_master.items()) or "없음") + "\n"
@@ -454,10 +460,13 @@ if raw_df is not None:
         with tab2:
             st.header("🎯 부대별 영업 전략 인사이트")
 
+            _months_desc = sorted(df['월'].unique(), reverse=True)
+            _cur_m = datetime.now(timezone(timedelta(hours=9))).month
+            _base_idx = next((i for i, m in enumerate(_months_desc) if m <= _cur_m), 0)   # 기본 기준월 = 당월(미래 예정월 제외)
             selected_base_month = st.selectbox(
                 "📅 분석 기준 월 선택 (전월 대비 비교)",
-                options=sorted(df['월'].unique(), reverse=True),
-                index=0,
+                options=_months_desc,
+                index=_base_idx,
                 format_func=lambda x: f"{x}월"
             )
             prev_month = selected_base_month - 1

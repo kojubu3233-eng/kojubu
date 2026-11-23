@@ -6,11 +6,16 @@ JSON 키 없이 동작합니다. Streamlit Secrets에 아래 2개만 등록하�
 
 Apps Script 쪽 데이터 규칙 (salesData_)
   - 자동화시스템 '데이터'(1~9월) + 'DB_Master'(10월~) 병합, 고유ID 중복 시 뒤(DB_Master) 우선
-  - 수량 = 확정량(개), 매출 = 확정매출, 확정 전 '예정' 건(확정매출 0)은 제외
+  - 확정 건: 수량 = 확정량(개), 매출 = 확정매출
+  - 마감된 월(closed_through_month 이하): 확정 건만 집계
+  - 미마감 월: 확정된 건은 확정매출, 확정되지 않은 건은 예정매출로 계산 (확정 건의 예정금액은 제외)
 """
 import pandas as pd
 import requests
 import streamlit as st
+
+from auto.units import KST, closed_through_month, month_of, year_of
+from datetime import datetime
 
 # 구분 표기 통일: 시트 표기 -> 기존 data.xlsx 표기
 CATEGORY_MAP = {"국": "국/탕"}
@@ -36,4 +41,24 @@ def load_from_sheet() -> pd.DataFrame:
     df["구분"] = df["구분"].replace(CATEGORY_MAP)
     for c in ["수량", "단가(Vat별도)", "매출"]:
         df[c] = _to_num(df[c])
+
+    # 올해 데이터만 (연도가 명시된 다른 연도 건은 월이 겹쳐 합산되므로 제외)
+    this_year = datetime.now(KST).year
+    yr = df["납품일"].map(year_of)
+    df = df[yr.isna() | (yr == this_year)].copy()
+
+    if "예정매출" in df.columns:   # 확정/예정 병행 형식
+        df["예정매출"] = _to_num(df["예정매출"]).fillna(0)
+        df["예정수량"] = _to_num(df["예정수량"]).fillna(0)
+        try:
+            override = st.secrets.get("CLOSED_THROUGH_MONTH")
+        except Exception:
+            override = None
+        closed = closed_through_month(override)
+        confirmed = df["매출"].fillna(0) > 0
+        use_plan = (df["납품일"].map(month_of) > closed) & ~confirmed & (df["예정매출"] > 0)
+        df.loc[use_plan, "매출"] = df.loc[use_plan, "예정매출"]
+        df.loc[use_plan, "수량"] = df.loc[use_plan, "예정수량"]
+        df = df[confirmed | use_plan]
+        df = df[["납품일", "부대명", "구분", "품목", "수량", "단가(Vat별도)", "매출"]]
     return df[df["매출"].fillna(0) > 0].reset_index(drop=True)
