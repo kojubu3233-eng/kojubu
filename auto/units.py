@@ -5,6 +5,7 @@
 - 위 부대 중 연간 납품 3회 미만(납품일 기준)인 부대는 부대별 분석에서 제외
 """
 import re
+from datetime import datetime, timedelta, timezone
 
 MIN_DELIVERIES = 3
 
@@ -38,3 +39,28 @@ def delivery_key(val) -> str:
     if m:
         return f"{int(m.group(1)):02d}-{int(m.group(2)):02d}"
     return s
+
+
+KST = timezone(timedelta(hours=9))
+
+
+def month_of(val) -> int:
+    """납품일 문자열에서 월 추출 (실패 시 0)."""
+    k = delivery_key(val)
+    return int(k[:2]) if re.match(r"^\d{2}-\d{2}$", k) else 0
+
+
+def year_of(val):
+    """납품일에 연도가 명시돼 있으면 연도, 없으면 None ('10월 01일' 형식)."""
+    m = re.search(r"(20\d{2})-\d{1,2}-\d{1,2}", str(val))
+    return int(m.group(1)) if m else None
+
+
+def closed_through_month(override=None) -> int:
+    """월 마감이 끝난 마지막 월. 이 월까지는 '확정 매출'만, 이후 월은 '확정 + 예정'으로 계산.
+    - Streamlit Secrets에 CLOSED_THROUGH_MONTH(예: 10)가 있으면 그 값을 사용
+    - 없으면 '전월'까지 마감된 것으로 간주 (당월·이후는 미마감)
+    """
+    if override not in (None, ""):
+        return int(override)
+    return datetime.now(KST).month - 1
