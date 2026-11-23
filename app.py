@@ -64,7 +64,7 @@ if raw_df is not None:
         df['부대명'] = df['부대명'].map(normalize_unit)   # 하위 부대(51군지단/31사단 등) -> 상위 부대로 통합
 
         df = df[pd.to_numeric(df['매출'].astype(str).str.replace(',', '', regex=False), errors='coerce').notna()]
-        df = df[~df['구분'].isin(['nan', 'None', ''])]
+        df['구분'] = df['구분'].replace({'nan': '미분류', 'None': '미분류', '': '미분류'})   # 구분 공란도 합계에 포함
         df = df[~df['부대명'].isin(['nan', 'None', ''])]
 
         for col in ['수량', '단가(Vat별도)', '매출']:
