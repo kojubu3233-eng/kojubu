@@ -4,25 +4,47 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import numpy as np
+from auto.units import UNIT_MASTER, MIN_DELIVERIES, normalize_unit, delivery_key
 
 def safe_sorted(iterable):
     return sorted([str(x) for x in iterable if str(x) not in ('nan', 'None', '')])
 
 st.set_page_config(page_title="연간 매출 분석 대시보드", layout="wide", initial_sidebar_state="expanded")
 st.title("📊 연간 매출 분석 대시보드")
-st.markdown("💡 **월 1회 깃허브에 업데이트된 엑셀 데이터**를 기반으로 중점 영업 전략을 도출하세요.")
+st.markdown("💡 **구글 시트(자동화시스템) 데이터가 자동 반영된 매출 현황**을 기반으로 중점 영업 전략을 도출하세요.")
 st.markdown("---")
 
 st.sidebar.header("📁 데이터 연동 상태")
-st.sidebar.success("✅ 깃허브 data.xlsx 연동 중")
 
 @st.cache_data(ttl=3600)
-def load_data():
+def load_excel_fallback():
     try:
         return pd.read_excel("data.xlsx", engine='openpyxl')
     except Exception as e:
         st.error(f"⚠️ 'data.xlsx' 파일을 읽을 수 없습니다: {e}")
         return None
+
+def load_data():
+    # 1순위: 구글 시트(자동화시스템) 자동 연동 / 실패 시 깃허브 data.xlsx로 대체
+    try:
+        has_secret = "SALES_API_URL" in st.secrets and "SALES_API_TOKEN" in st.secrets
+    except Exception:
+        has_secret = False
+    if has_secret:
+        try:
+            from auto.sheet_loader import load_from_sheet
+            d = load_from_sheet()
+            st.sidebar.success(f"✅ 자동화시스템 자동 연동 중 ({len(d):,}건)")
+            if st.sidebar.button("🔄 지금 새로고침"):
+                st.cache_data.clear()
+                st.rerun()
+            return d
+        except Exception as e:
+            st.sidebar.warning(f"⚠️ 자동화시스템 연동 실패 → data.xlsx 사용\n\n{e}")
+    else:
+        st.sidebar.info("ℹ️ 자동화시스템 미설정 → data.xlsx 사용")
+    st.sidebar.success("✅ 깃허브 data.xlsx 연동 중")
+    return load_excel_fallback()
 
 raw_df = load_data()
 
@@ -39,6 +61,7 @@ if raw_df is not None:
 
         for col in ['납품일', '부대명', '구분', '품목']:
             df[col] = df[col].astype(str).str.strip()
+        df['부대명'] = df['부대명'].map(normalize_unit)   # 하위 부대(51군지단/31사단 등) -> 상위 부대로 통합
 
         df = df[pd.to_numeric(df['매출'].astype(str).str.replace(',', '', regex=False), errors='coerce').notna()]
         df = df[~df['구분'].isin(['nan', 'None', ''])]
@@ -64,11 +87,30 @@ if raw_df is not None:
         df['월'] = df['납품일'].apply(extract_month_safely).astype(int)
         df = df[df['월'].between(1, 12)].sort_values('월')
 
-        unit_pivot_raw = df.groupby(['부대명', '월'])['매출'].sum().unstack(fill_value=0)
+        # ── 부대별 분석 대상: 부대별정보에 있는 부대 중 연간 납품 3회 이상 ──
+        # (합계 매출에는 모든 거래처 포함 / 부대별 세분화에서만 제외)
+        df['_납품키'] = df['납품일'].map(delivery_key)
+        in_master = df[df['부대명'].isin(UNIT_MASTER)]
+        delivery_cnt = in_master.groupby('부대명')['_납품키'].nunique()
+        valid_unit_names = delivery_cnt[delivery_cnt >= MIN_DELIVERIES].index
+        df_unit = in_master[in_master['부대명'].isin(valid_unit_names)]
+
+        not_master = df[~df['부대명'].isin(UNIT_MASTER)].groupby('부대명')['매출'].sum()
+        few_delivery = delivery_cnt[delivery_cnt < MIN_DELIVERIES]
+        st.sidebar.markdown("---")
+        st.sidebar.caption(
+            f"📌 부대별 분석 대상 {len(valid_unit_names)}개 부대\n\n"
+            f"- 합계 매출에만 포함(부대별정보에 없음): "
+            + (", ".join(f"{k}({v:,.0f}원)" for k, v in not_master.items()) or "없음") + "\n"
+            f"- 부대별 분석 제외(연간 납품 {MIN_DELIVERIES}회 미만): "
+            + (", ".join(f"{k}({v}회)" for k, v in few_delivery.items()) or "없음")
+        )
+
+        unit_pivot_raw = df_unit.groupby(['부대명', '월'])['매출'].sum().unstack(fill_value=0)
         unit_pivot_raw.columns = [int(c) for c in unit_pivot_raw.columns]
 
-        unit_annual   = df.groupby('부대명')['매출'].sum()
-        active_months = df.groupby('부대명')['월'].nunique()
+        unit_annual   = df_unit.groupby('부대명')['매출'].sum()
+        active_months = df_unit.groupby('부대명')['월'].nunique()
         unit_avg      = unit_annual / active_months
 
         if len(unit_annual) >= 3:
@@ -302,7 +344,11 @@ if raw_df is not None:
             st.header("2. 매출 상세 분석 및 부대별 현황")
 
             st.subheader("🏢 부대별 전체 매출 현황 (마스터 리스트)")
-            unit_pivot = pd.pivot_table(df, index='부대명', columns='월', values='매출', aggfunc='sum', fill_value=0)
+            st.caption(
+                f"부대별정보에 등록된 부대 중 연간 납품 {MIN_DELIVERIES}회 이상인 부대만 표시합니다. "
+                f"(전체 합계 {df['매출'].sum():,.0f}원 중 부대별 현황 반영 {df_unit['매출'].sum():,.0f}원 — "
+                "그 외 거래처는 합계 매출에만 포함)")
+            unit_pivot = pd.pivot_table(df_unit, index='부대명', columns='월', values='매출', aggfunc='sum', fill_value=0)
             unit_pivot.columns = [f"{int(c)}월" for c in unit_pivot.columns]
             unit_pivot['총매출'] = unit_pivot.sum(axis=1)
             unit_pivot = unit_pivot.sort_index(ascending=True)
@@ -316,7 +362,7 @@ if raw_df is not None:
             st.subheader("📈 상세 필터 및 전월 대비 증감율 분석")
 
             col1, col2, col3 = st.columns(3)
-            with col1: selected_units = st.multiselect("📍 부대명 선택", options=safe_sorted(df['부대명'].unique()))
+            with col1: selected_units = st.multiselect("📍 부대명 선택", options=safe_sorted(df_unit['부대명'].unique()))
             with col2: selected_categories = st.multiselect("🏷️ 구분 선택", options=safe_sorted(df['구분'].unique()))
             with col3: selected_months = st.multiselect("📅 월 선택", options=sorted(df['월'].unique()))
 
@@ -386,7 +432,7 @@ if raw_df is not None:
                 with st.expander("🔍 상세 검색 및 데이터 표 펼치기", expanded=False):
                     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
                     with f_col1: raw_date = st.multiselect("☑️ 납품일", options=safe_sorted(analysis_df['납품일'].unique()))
-                    with f_col2: raw_unit = st.multiselect("☑️ 부대명", options=safe_sorted(analysis_df['부대명'].unique()))
+                    with f_col2: raw_unit = st.multiselect("☑️ 부대명", options=safe_sorted(analysis_df[analysis_df['부대명'].isin(valid_unit_names)]['부대명'].unique()))
                     with f_col3: raw_cat  = st.multiselect("☑️ 구분",   options=safe_sorted(analysis_df['구분'].unique()))
                     with f_col4: raw_item = st.multiselect("☑️ 품목",   options=safe_sorted(analysis_df['품목'].unique()))
                     final_table_df = analysis_df.copy()
