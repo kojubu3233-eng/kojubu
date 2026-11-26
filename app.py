@@ -121,6 +121,9 @@ if raw_df is not None:
 
 
         def styled(d, num_cols=(), pct_cols=()):
+            d = d.copy()
+            for c in list(num_cols) + list(pct_cols):
+                d[c] = pd.to_numeric(d[c], errors='coerce')   # 빈 값이 'None'으로 보이지 않도록 숫자형 강제
             fmt = {c: "{:,.0f}" for c in num_cols}
             fmt.update({c: "{:+.1f}%" for c in pct_cols})
             sty = d.style.format(fmt, na_rep='-')
@@ -285,7 +288,7 @@ if raw_df is not None:
             pcol, ccol = f"{prev}월(전월)", f"{base}월(당월)"
             t[pcol] = prv.reindex(cum.index).fillna(0).values
             t[ccol] = cur.reindex(cum.index).fillna(0).values
-            t['증감률'] = np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan)
+            t['증감률'] = pd.to_numeric(np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan), errors='coerce')
             t['변동'] = np.select([t['증감률'] >= 50, t['증감률'] <= -50, (t[pcol] == 0) & (t[ccol] > 0)],
                                 ['📈 급증', '📉 급감', '🆕 신규'], default='')
             t['추이'] = [list(up.loc[u].values) for u in cum.index]
@@ -295,41 +298,9 @@ if raw_df is not None:
             show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'],
                        height=420, spark='추이')
 
-            # ② 이번 달 급증 / 급감 (당월 vs 직전 3개월 평균)
+            # ② 분기 분석
             st.markdown("---")
-            SURGE = 30
-            prev3 = [m for m in upto if m < base][-3:]
-            st.subheader(f"② {base}월 급증 / 급감 부대")
-            st.caption(f"{base}월 매출을 직전 3개월({', '.join(f'{m}월' for m in prev3)}) 평균과 비교해 ±{SURGE}% 이상 변한 부대"
-                       + (" · 미마감 월은 예정 포함" if base > _closed else ""))
-            if not prev3:
-                st.info("비교할 직전 월 데이터가 없습니다.")
-            else:
-                sv = pd.DataFrame({'부대명': cum.index, '등급': grade.values})
-                for m in prev3:
-                    sv[f'{m}월'] = up[m].values
-                sv['3개월 평균'] = up[prev3].mean(axis=1).values
-                sv[f'{base}월'] = cur.reindex(cum.index).fillna(0).values
-                sv['증감액'] = sv[f'{base}월'] - sv['3개월 평균']
-                sv['증감률'] = np.where(sv['3개월 평균'] > 0, sv['증감액'] / sv['3개월 평균'].replace(0, np.nan) * 100, np.nan)
-                sv['비고'] = ''
-                sv.loc[(sv['3개월 평균'] == 0) & (sv[f'{base}월'] > 0), '비고'] = '신규'
-                sv.loc[(sv['3개월 평균'] > 0) & (sv[f'{base}월'] == 0), '비고'] = '발주 없음'
-                up_df = sv[(sv['증감률'] >= SURGE) | (sv['비고'] == '신규')].sort_values('증감액', ascending=False)
-                dn_df = sv[sv['증감률'] <= -SURGE].sort_values('증감액')
-                scols = ['부대명', '등급'] + [f'{m}월' for m in prev3] + ['3개월 평균', f'{base}월', '증감률', '비고']
-                snum = [f'{m}월' for m in prev3] + ['3개월 평균', f'{base}월']
-                s1, s2 = st.columns(2)
-                with s1:
-                    st.markdown(f"**📈 급증 ({len(up_df)}개)**")
-                    show_table(up_df[scols], num_cols=snum, pct_cols=['증감률'])
-                with s2:
-                    st.markdown(f"**📉 급감 ({len(dn_df)}개)**")
-                    show_table(dn_df[scols], num_cols=snum, pct_cols=['증감률'])
-
-            # ③ 분기 분석
-            st.markdown("---")
-            st.subheader("③ 분기 분석")
+            st.subheader("② 분기 분석")
             qmap = {1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]}
             qs = [q for q, ms in qmap.items() if any(m in months_all for m in ms)]
             qcol1, qcol2 = st.columns([1, 4])
