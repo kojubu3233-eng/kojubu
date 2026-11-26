@@ -28,7 +28,7 @@ def _to_num(s: pd.Series) -> pd.Series:
 
 def detect_closed_month(df: pd.DataFrame, tol: float = 0.05) -> int:
     """시트 데이터로 마감 월 자동 판단.
-    월별로 '아직 확정되지 않은 예정 금액' 비중을 보고, 그 비중이 5%를 넘는 첫 달의 직전 달까지를 마감으로 본다.
+    월별로 '아직 확정되지 않은 예정 금액' 비중을 보고, 최근 월부터 거꾸로 보며 그 비중이 5% 이하인 첫 달까지를 마감으로 본다.
     (예: 11월은 모두 확정, 12월은 대부분 예정 → 11월까지 마감)
     """
     m = df["납품일"].map(month_of)
@@ -39,8 +39,12 @@ def detect_closed_month(df: pd.DataFrame, tol: float = 0.05) -> int:
     if g.empty:
         return closed_through_month()
     share = g["p"] / (g["c"] + g["p"]).replace(0, 1)
-    open_months = share[share > tol].index
-    return int(open_months.min() - 1) if len(open_months) else int(g.index.max())
+    # 최근 월부터 거꾸로 보며, 예정 비중이 낮은(=확정 완료) 첫 달을 마감 월로 본다.
+    # (과거 월에 남은 미확정 예정 행 때문에 마감 월이 앞당겨지지 않도록)
+    for mm in sorted(share.index, reverse=True):
+        if share[mm] <= tol:
+            return int(mm)
+    return int(share.index.min()) - 1
 
 
 @st.cache_data(ttl=600, show_spinner="자동화시스템에서 최신 매출 데이터를 불러오는 중...")
