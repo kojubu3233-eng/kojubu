@@ -298,9 +298,27 @@ if raw_df is not None:
             show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'],
                        height=420, spark='추이')
 
-            # ② 분기 분석
+            # ② 당월 매출 급증 / 급감 (전월 대비 ±50%)
             st.markdown("---")
-            st.subheader("② 분기 분석")
+            st.subheader(f"② {base}월 매출 급증 / 급감 부대")
+            st.caption(f"{prev}월(전월) 대비 {base}월(당월) 매출이 ±50% 이상 변한 부대"
+                       + (" · 미마감 월은 예정 포함" if base > _closed else ""))
+            sv = t.copy()
+            sv['증감액'] = sv[ccol] - sv[pcol]
+            surge_up = sv[sv['변동'].isin(['📈 급증', '🆕 신규'])].sort_values('증감액', ascending=False)
+            surge_dn = sv[sv['변동'] == '📉 급감'].sort_values('증감액')
+            scols = ['부대명', '등급', pcol, ccol, '증감액', '증감률', '변동']
+            s1, s2 = st.columns(2)
+            with s1:
+                st.markdown(f"**📈 급증 ({len(surge_up)}개)**")
+                show_table(surge_up[scols], num_cols=[pcol, ccol, '증감액'], pct_cols=['증감률'])
+            with s2:
+                st.markdown(f"**📉 급감 ({len(surge_dn)}개)**")
+                show_table(surge_dn[scols], num_cols=[pcol, ccol, '증감액'], pct_cols=['증감률'])
+
+            # ③ 분기 분석
+            st.markdown("---")
+            st.subheader("③ 분기 분석")
             qmap = {1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]}
             qs = [q for q, ms in qmap.items() if any(m in months_all for m in ms)]
             qcol1, qcol2 = st.columns([1, 4])
