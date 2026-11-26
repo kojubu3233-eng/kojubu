@@ -257,12 +257,11 @@ if raw_df is not None:
         # ══════════════════════════════════════════
         with tab2:
             months_desc = sorted(months_all, reverse=True)
-            t1, t0, t2 = st.columns([1, 1, 3])
+            t1, t2 = st.columns([1, 3])
             base = t1.selectbox("📅 기준 월", months_desc,
                                 index=next((i for i, m in enumerate(months_desc) if m <= TARGET_M), 0),
                                 format_func=lambda x: f"{x}월")
             prev = base - 1
-            n_show = t0.selectbox("🗓️ 표시 기간", [3, 6, 12], index=0, format_func=lambda x: f"최근 {x}개월")
             t2.markdown(
                 f"<div style='padding-top:30px;font-size:13px;opacity:.8'>행 색상: "
                 f"<span style='background:rgba(229,83,75,.3);padding:2px 6px;border-radius:4px'>🔴 상위</span> 누적 매출 상위 1/3 · "
@@ -272,8 +271,6 @@ if raw_df is not None:
             upto = [m for m in months_all if m <= base]
             up = unit_pivot_raw[upto]
             cum = up.sum(axis=1)
-            WSHOW = upto[-n_show:]                     # 표에 보여줄 월 (기본 최근 3개월)
-            wcols = [f"{m}월" for m in WSHOW]
             if len(cum) >= 3:
                 grade = pd.qcut(cum.rank(method='first'), q=3, labels=[LO, MID, HI]).astype(str)
             else:
@@ -285,11 +282,17 @@ if raw_df is not None:
             st.subheader(f"① 부대별 매출 현황 ({base}월 기준)")
             t = pd.DataFrame({'부대명': cum.index, '등급': grade.values, '누적매출': cum.values,
                               '월평균': (cum / max(len(upto), 1)).values})
-            for m in WSHOW:
-                t[f"{m}월"] = up[m].values
+            pcol, ccol = f"{prev}월(전월)", f"{base}월(당월)"
+            t[pcol] = prv.reindex(cum.index).fillna(0).values
+            t[ccol] = cur.reindex(cum.index).fillna(0).values
+            t['증감률'] = np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan)
+            t['변동'] = np.select([t['증감률'] >= 50, t['증감률'] <= -50, (t[pcol] == 0) & (t[ccol] > 0)],
+                                ['📈 급증', '📉 급감', '🆕 신규'], default='')
             t['추이'] = [list(up.loc[u].values) for u in cum.index]
             t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
-            show_table(t, num_cols=['누적매출', '월평균'] + wcols,
+            st.caption("변동: 전월 대비 ±50% 이상이면 📈 급증 / 📉 급감 표시")
+            t = t[['부대명', '등급', '누적매출', '월평균', pcol, ccol, '증감률', '변동', '추이']]
+            show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'],
                        height=420, spark='추이')
 
             # ② 이번 달 급증 / 급감 (당월 vs 직전 3개월 평균)
