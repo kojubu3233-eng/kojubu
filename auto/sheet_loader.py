@@ -26,8 +26,26 @@ def _to_num(s: pd.Series) -> pd.Series:
                          errors="coerce")
 
 
+def detect_closed_month(df: pd.DataFrame, tol: float = 0.05) -> int:
+    """시트 데이터로 마감 월 자동 판단.
+    월별로 '아직 확정되지 않은 예정 금액' 비중을 보고, 그 비중이 5%를 넘는 첫 달의 직전 달까지를 마감으로 본다.
+    (예: 11월은 모두 확정, 12월은 대부분 예정 → 11월까지 마감)
+    """
+    m = df["납품일"].map(month_of)
+    conf = df["매출"].fillna(0)
+    plan_open = df["예정매출"].where(conf <= 0, 0)
+    g = pd.DataFrame({"m": m, "c": conf, "p": plan_open})
+    g = g[g["m"].between(1, 12)].groupby("m")[["c", "p"]].sum()
+    if g.empty:
+        return closed_through_month()
+    share = g["p"] / (g["c"] + g["p"]).replace(0, 1)
+    open_months = share[share > tol].index
+    return int(open_months.min() - 1) if len(open_months) else int(g.index.max())
+
+
 @st.cache_data(ttl=600, show_spinner="자동화시스템에서 최신 매출 데이터를 불러오는 중...")
-def load_from_sheet() -> pd.DataFrame:
+def load_from_sheet():
+    """(매출 DataFrame, 마감 월) 반환."""
     url = st.secrets["SALES_API_URL"]
     token = st.secrets["SALES_API_TOKEN"]
     r = requests.get(url, params={"action": "sales", "token": token}, timeout=60)
@@ -54,11 +72,13 @@ def load_from_sheet() -> pd.DataFrame:
             override = st.secrets.get("CLOSED_THROUGH_MONTH")
         except Exception:
             override = None
-        closed = closed_through_month(override)
+        closed = closed_through_month(override) if override not in (None, "") else detect_closed_month(df)
         confirmed = df["매출"].fillna(0) > 0
         use_plan = (df["납품일"].map(month_of) > closed) & ~confirmed & (df["예정매출"] > 0)
         df.loc[use_plan, "매출"] = df.loc[use_plan, "예정매출"]
         df.loc[use_plan, "수량"] = df.loc[use_plan, "예정수량"]
         df = df[confirmed | use_plan]
         df = df[["납품일", "부대명", "구분", "품목", "수량", "단가(Vat별도)", "매출"]]
-    return df[df["매출"].fillna(0) > 0].reset_index(drop=True)
+    else:
+        closed = closed_through_month()
+    return df[df["매출"].fillna(0) > 0].reset_index(drop=True), closed
