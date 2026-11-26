@@ -260,11 +260,12 @@ if raw_df is not None:
         # ══════════════════════════════════════════
         with tab2:
             months_desc = sorted(months_all, reverse=True)
-            t1, t2 = st.columns([1, 3])
+            t1, t0, t2 = st.columns([1, 1, 3])
             base = t1.selectbox("📅 기준 월", months_desc,
                                 index=next((i for i, m in enumerate(months_desc) if m <= TARGET_M), 0),
                                 format_func=lambda x: f"{x}월")
             prev = base - 1
+            n_show = t0.selectbox("🗓️ 표시 기간", [3, 6, 12], index=0, format_func=lambda x: f"최근 {x}개월")
             t2.markdown(
                 f"<div style='padding-top:30px;font-size:13px;opacity:.8'>행 색상: "
                 f"<span style='background:rgba(229,83,75,.3);padding:2px 6px;border-radius:4px'>🔴 상위</span> 누적 매출 상위 1/3 · "
@@ -274,6 +275,8 @@ if raw_df is not None:
             upto = [m for m in months_all if m <= base]
             up = unit_pivot_raw[upto]
             cum = up.sum(axis=1)
+            WSHOW = upto[-n_show:]                     # 표에 보여줄 월 (기본 최근 3개월)
+            wcols = [f"{m}월" for m in WSHOW]
             if len(cum) >= 3:
                 grade = pd.qcut(cum.rank(method='first'), q=3, labels=[LO, MID, HI]).astype(str)
             else:
@@ -283,14 +286,13 @@ if raw_df is not None:
 
             # ① 부대별 매출 현황
             st.subheader(f"① 부대별 매출 현황 ({base}월 기준)")
-            last3 = [m for m in upto[-3:]]
             t = pd.DataFrame({'부대명': cum.index, '등급': grade.values, '누적매출': cum.values,
                               '월평균': (cum / max(len(upto), 1)).values})
-            for m in last3:
-                t[f"{m}월" + (" (당월)" if m == base else "")] = up[m].values
+            for m in WSHOW:
+                t[f"{m}월"] = up[m].values
             t['추이'] = [list(up.loc[u].values) for u in cum.index]
             t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
-            show_table(t, num_cols=['누적매출', '월평균'] + [c for c in t.columns if c.endswith('월') or '(당월)' in c],
+            show_table(t, num_cols=['누적매출', '월평균'] + wcols,
                        height=420, spark='추이')
 
             # ② 전월 대비 증감
@@ -303,7 +305,8 @@ if raw_df is not None:
             a2.metric(f"{base}월 전체 매출", man(tc), delta=f"{(tc - tp) / tp * 100:+.1f}%" if tp else None)
             a3.metric("증가 / 감소 부대", f"{int(((cur - prv) > 0).sum())} / {int(((cur - prv) < 0).sum())}개")
 
-            mom = (tot_m.pct_change() * 100).dropna().reset_index()
+            mom = (tot_m.pct_change() * 100).dropna()
+            mom = mom[mom.index.isin(WSHOW)].reset_index()
             mom.columns = ['월', '증감률']
             fig_mom = px.bar(mom, x='월', y='증감률', text=mom['증감률'].map(lambda v: f"{v:+.1f}%"),
                              color=np.where(mom['증감률'] >= 0, '상승', '하락'),
@@ -315,12 +318,17 @@ if raw_df is not None:
             fig_mom.update_xaxes(dtick=1, ticksuffix='월', title=None)
             st.plotly_chart(fig_mom, width='stretch')
 
-            chg = pd.DataFrame({'부대명': cum.index, '등급': grade.values, f'{prev}월': prv.values, f'{base}월': cur.values})
+            chg = pd.DataFrame({'부대명': cum.index, '등급': grade.values})
+            for m in sorted(set(WSHOW) | ({prev} if prev in months_all else set())):
+                chg[f'{m}월'] = up[m].values
+            if f'{prev}월' not in chg:
+                chg[f'{prev}월'] = 0.0
             chg['증감액'] = chg[f'{base}월'] - chg[f'{prev}월']
             chg['증감률'] = np.where(chg[f'{prev}월'] > 0, chg['증감액'] / chg[f'{prev}월'].replace(0, np.nan) * 100, np.nan)
             flt = st.radio("보기", ["전체", "증가", "감소"], horizontal=True, key='chg_flt', label_visibility='collapsed')
             cv = chg if flt == "전체" else chg[chg['증감액'] > 0] if flt == "증가" else chg[chg['증감액'] < 0]
-            show_table(cv.sort_values('증감액', ascending=False), num_cols=[f'{prev}월', f'{base}월', '증감액'],
+            mcols = [c for c in chg.columns if c.endswith('월')]
+            show_table(cv.sort_values('증감액', ascending=False), num_cols=mcols + ['증감액'],
                        pct_cols=['증감률'], height=360)
 
             # ③ 급증 / 급감
@@ -332,14 +340,14 @@ if raw_df is not None:
             s.loc[(s[f'{prev}월'] > 0) & (s[f'{base}월'] == 0), '비고'] = '발주 없음'
             up_df = s[(s['증감률'] >= SURGE) | (s['비고'] == '신규')].sort_values('증감액', ascending=False)
             dn_df = s[s['증감률'] <= -SURGE].sort_values('증감액')
-            g1, g2 = st.columns(2)
-            cols = ['부대명', '등급', f'{prev}월', f'{base}월', '증감률', '비고']
+            g1, g2 = st.columns(2) if n_show <= 3 else (st.container(), st.container())
+            cols = ['부대명', '등급'] + mcols + ['증감률', '비고']
             with g1:
                 st.markdown(f"**📈 급증 ({len(up_df)}개)**")
-                show_table(up_df[cols], num_cols=[f'{prev}월', f'{base}월'], pct_cols=['증감률'])
+                show_table(up_df[cols], num_cols=mcols, pct_cols=['증감률'])
             with g2:
                 st.markdown(f"**📉 급감 ({len(dn_df)}개)**")
-                show_table(dn_df[cols], num_cols=[f'{prev}월', f'{base}월'], pct_cols=['증감률'])
+                show_table(dn_df[cols], num_cols=mcols, pct_cols=['증감률'])
 
             # ④ ⑤ 꾸준히 증가 / 감소
             WIN = upto[-6:]
