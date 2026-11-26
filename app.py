@@ -342,25 +342,25 @@ if raw_df is not None:
             qd['등급'] = qd['부대명'].map(grade).fillna(MID)
             for m in qms:
                 qd[f'{m}월'] = unit_pivot_raw[m].values
-            qd[f'{qsel}분기'] = unit_pivot_raw[qms].sum(axis=1).values
-            qnum = [f'{m}월' for m in qms] + [f'{qsel}분기']
+            qd[f'{qsel}분기 합계'] = unit_pivot_raw[qms].sum(axis=1).values
+            qnum = [f'{m}월' for m in qms] + [f'{qsel}분기 합계']
             if pms:
-                qd[f'{qsel - 1}분기'] = unit_pivot_raw[pms].sum(axis=1).values
-                qd['증감률'] = np.where(qd[f'{qsel - 1}분기'] > 0,
-                                     (qd[f'{qsel}분기'] - qd[f'{qsel - 1}분기']) / qd[f'{qsel - 1}분기'].replace(0, np.nan) * 100, np.nan)
-                qcols = ['부대명', '등급', f'{qsel - 1}분기'] + qnum + ['증감률']
+                qd[f'{qsel - 1}분기 합계'] = unit_pivot_raw[pms].sum(axis=1).values
+                qd['증감률'] = np.where(qd[f'{qsel - 1}분기 합계'] > 0,
+                                     (qd[f'{qsel}분기 합계'] - qd[f'{qsel - 1}분기 합계']) / qd[f'{qsel - 1}분기 합계'].replace(0, np.nan) * 100, np.nan)
+                qcols = ['부대명', '등급', f'{qsel - 1}분기 합계'] + qnum + ['증감률']
                 rise = qd[qd['증감률'] >= QTH].sort_values('증감률', ascending=False)
                 fall = qd[qd['증감률'] <= -QTH].sort_values('증감률')
                 r1, r2 = st.columns(2)
                 with r1:
                     st.markdown(f"**📈 상승 부대 ({len(rise)}개)** · 전 분기 대비 +{QTH}% 이상")
-                    show_table(rise[qcols], num_cols=[f'{qsel - 1}분기'] + qnum, pct_cols=['증감률'])
+                    show_table(rise[qcols], num_cols=[f'{qsel - 1}분기 합계'] + qnum, pct_cols=['증감률'])
                 with r2:
                     st.markdown(f"**📉 하락 부대 ({len(fall)}개)** · 전 분기 대비 −{QTH}% 이상")
-                    show_table(fall[qcols], num_cols=[f'{qsel - 1}분기'] + qnum, pct_cols=['증감률'])
+                    show_table(fall[qcols], num_cols=[f'{qsel - 1}분기 합계'] + qnum, pct_cols=['증감률'])
             qavg = qd[[f'{m}월' for m in qms]].mean(axis=1)
             qd['등락폭'] = np.where(qavg > 0, (qd[[f'{m}월' for m in qms]].max(axis=1) - qd[[f'{m}월' for m in qms]].min(axis=1)) / qavg.replace(0, np.nan) * 100, np.nan)
-            swing = qd[(qd['등락폭'] >= SWING) & (qd[f'{qsel}분기'] > 0)].sort_values('등락폭', ascending=False)
+            swing = qd[(qd['등락폭'] >= SWING) & (qd[f'{qsel}분기 합계'] > 0)].sort_values('등락폭', ascending=False)
             st.markdown(f"**🌊 등락폭이 큰 부대 ({len(swing)}개)** · 분기 내 (최고월 − 최저월) ÷ 월평균 ≥ {SWING}% → 발주가 불규칙한 부대")
             show_table(swing[['부대명', '등급'] + qnum + ['등락폭']], num_cols=qnum, pct_cols=['등락폭'])
 
