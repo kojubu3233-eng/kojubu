@@ -112,6 +112,7 @@ if raw_df is not None:
 
         KST = timezone(timedelta(hours=9))
         NOW_M = datetime.now(KST).month
+        TARGET_M = min(NOW_M + 1, 12)   # 기준(당월) = 다음 달 예정월 (예: 11월 현재 → 12월)
         months_all = sorted(int(m) for m in df['월'].unique())
         HI, MID, LO = '🔴 상위', '⚪ 중위', '🔵 하위'
         GRADE_BG = {HI: 'background-color: rgba(229,83,75,0.22)', LO: 'background-color: rgba(59,142,234,0.22)'}
@@ -153,10 +154,10 @@ if raw_df is not None:
         with tab1:
             total = df['매출'].sum()
             monthly = df.groupby('월')['매출'].sum().reindex(months_all, fill_value=0)
-            cur_m = NOW_M if NOW_M in monthly.index else months_all[-1]
+            cur_m = max([m for m in months_all if m <= TARGET_M] or [months_all[-1]])
             k1, k2, k3 = st.columns(3)
             k1.metric("💰 올해 누적 매출", man(total), help=f"{total:,.0f}원")
-            k2.metric(f"📅 {cur_m}월 매출", man(monthly.get(cur_m, 0)), help=f"{monthly.get(cur_m, 0):,.0f}원")
+            k2.metric(f"📅 {cur_m}월 매출" + (" (예정 포함)" if cur_m > _closed else ""), man(monthly.get(cur_m, 0)), help=f"{monthly.get(cur_m, 0):,.0f}원")
             k3.metric("📈 월평균 매출", man(monthly[monthly.index <= cur_m].mean()))
 
             mdf = monthly.reset_index()
@@ -261,7 +262,7 @@ if raw_df is not None:
             months_desc = sorted(months_all, reverse=True)
             t1, t2 = st.columns([1, 3])
             base = t1.selectbox("📅 기준 월", months_desc,
-                                index=next((i for i, m in enumerate(months_desc) if m <= NOW_M), 0),
+                                index=next((i for i, m in enumerate(months_desc) if m <= TARGET_M), 0),
                                 format_func=lambda x: f"{x}월")
             prev = base - 1
             t2.markdown(
