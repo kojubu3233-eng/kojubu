@@ -101,7 +101,7 @@ if raw_df is not None:
         except Exception:
             _closed = closed_through_month()
         st.sidebar.markdown("---")
-        st.sidebar.caption(f"🗓️ 마감 ~{_closed}월: 확정 / {_closed + 1}월~: 확정+예정")
+        st.sidebar.caption(f"🗓️ {_closed}월까지(마감): 확정 매출 · {_closed + 1}월부터(미마감): 확정+예정")
         with st.sidebar.expander(f"📌 부대별 분석 대상 {len(valid_unit_names)}개 부대"):
             st.caption(
             f"- 합계 매출에만 포함(부대별정보에 없음): "
@@ -288,7 +288,7 @@ if raw_df is not None:
             for m in last3:
                 t[f"{m}월" + (" (당월)" if m == base else "")] = up[m].values
             t['추이'] = [list(up.loc[u].values) for u in cum.index]
-            t = t.sort_values('누적매출', ascending=False)
+            t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
             show_table(t, num_cols=['누적매출', '월평균'] + [c for c in t.columns if c.endswith('월') or '(당월)' in c],
                        height=420, spark='추이')
 
@@ -360,7 +360,7 @@ if raw_df is not None:
                                  '월평균 변화율': slope / y.mean() * 100, '_r2': r2, '추이': list(y)})
                 tr = pd.DataFrame(rows)
                 num = [f'{m}월' for m in WIN]
-                cond_note = (f"{WIN[0]}월~{WIN[-1]}월({len(WIN)}개월) 추세선 기준 · 월평균 변화율 ±5% 이상이면서 "
+                cond_note = (f"{WIN[0]}월\\~{WIN[-1]}월({len(WIN)}개월) 추세선 기준 · 월평균 변화율 ±5% 이상이면서 "
                              "추세가 일정한(들쭉날쭉하지 않은) 부대")
                 inc = tr[(tr['월평균 변화율'] >= 5) & (tr['_r2'] >= 0.4)].sort_values('월평균 변화율', ascending=False)
                 dec = tr[(tr['월평균 변화율'] <= -5) & (tr['_r2'] >= 0.4)].sort_values('월평균 변화율')
