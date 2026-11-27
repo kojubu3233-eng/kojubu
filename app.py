@@ -166,6 +166,8 @@ if raw_df is not None:
 
         def man(x):
             """금액을 '1.2억' / '3,456만' 형태로 짧게 표기."""
+            if not x:
+                return "0"
             return f"{x/1e8:,.1f}억" if abs(x) >= 1e8 else f"{x/1e4:,.0f}만"
 
 
@@ -322,7 +324,7 @@ if raw_df is not None:
             t2.markdown(f"<div style='padding-top:34px;font-size:12.5px;color:#8b93a1'>"
                         f"표 행 색상: <span style='background:rgba(229,83,75,.3);padding:1px 6px;border-radius:4px'>상위</span> "
                         f"누적 매출 상위 1/3 · <span style='background:rgba(59,142,234,.3);padding:1px 6px;border-radius:4px'>하위</span> "
-                        f"하위 1/3 (1월\\~{base}월 누적)</div>", unsafe_allow_html=True)
+                        f"하위 1/3 (1–{base}월 누적)</div>", unsafe_allow_html=True)
 
             upto = [m for m in months_all if m <= base]
             up = unit_pivot_raw[upto]
