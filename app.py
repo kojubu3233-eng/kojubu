@@ -398,6 +398,29 @@ if raw_df is not None:
                                f"{prev}월 매출은 있으나 {base}월 {'예정' if base > _closed else '매출'}이 없거나 50% 미만 · 발주 확인 필요",
                                ["부대", f"{prev}월", f"{base}월"],
                                [[_name(u), man(x), "<span class='neg'>없음</span>" if y == 0 else f"{man(y)} ({_pct(x, y)})"] for u, x, y in nx]))
+            if prev - 1 in unit_pivot_raw.columns and prev in unit_pivot_raw.columns:
+                uu_ = sorted([(u, _v(u, prev - 1), _v(u, prev)) for u in units_all], key=lambda x: x[1] - x[2])
+                uu_ = [x for x in uu_ if x[2] > x[1]][:7]
+                cards.insert(3, _card("🔺 전월 대비 상승 상위", f"{prev - 1}월 → {prev}월 증가액이 큰 순 · 추가 제안 대상",
+                                      ["부대", "매출", "증가"],
+                                      [[_name(u), f"{man(x)} → {man(y)}", f"<span class='pos'>+{man(y - x)}</span> ({_pct(x, y)})"] for u, x, y in uu_]))
+            _qmap = {1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]}
+            _qn = (base - 1) // 3 + 1
+            _qm = [m for m in _qmap[_qn] if m in unit_pivot_raw.columns]
+            _pm = [m for m in _qmap.get(_qn - 1, []) if m in unit_pivot_raw.columns]
+            if _qm and _pm:
+                qa = unit_pivot_raw[_pm].sum(axis=1)
+                qb = unit_pivot_raw[_qm].sum(axis=1)
+                qr = [(u, float(qa[u]), float(qb[u])) for u in units_all if qa[u] > 0]
+                qr = [(u, x, y, (y - x) / x * 100) for u, x, y in qr]
+                qup = sorted([r for r in qr if r[3] > 0], key=lambda r: -r[3])[:7]
+                qdn = sorted([r for r in qr if r[3] < 0], key=lambda r: r[3])[:7]
+                qhead = ["부대", "분기 합계", "증감"]
+                qnote = f"{_qn - 1}분기 → {_qn}분기({_qm[0]}~{_qm[-1]}월" + (" · 미마감 월 예정 포함" if any(m > _closed for m in _qm) else "") + ")"
+                cards.append(_card("🚀 분기 상승 상위", f"{qnote} 증가율 순",
+                                   qhead, [[_name(u), f"{man(x)} → {man(y)}", _pct(x, y)] for u, x, y, _ in qup]))
+                cards.append(_card("🧊 분기 하락 상위", f"{qnote} 감소율 순 · 원인 점검 대상",
+                                   qhead, [[_name(u), f"{man(x)} → {man(y)}", _pct(x, y)] for u, x, y, _ in qdn]))
             def _focus_rows(lst):
                 return [[_name(u), man(_v(u, prev)), man(_v(u, base)), _pct(_v(u, prev), _v(u, base))] for u in lst]
 
@@ -406,7 +429,10 @@ if raw_df is not None:
                                ["부대", f"{prev}월", f"{base}월", "증감"], _focus_rows(focus_low)))
             cards.append(_card("⭐ 핵심 유지 · 꾸준히 높은 부대", f"매출 발생 월 80% 이상 + 누적 상위 {len(focus_top)}곳 · 이탈 방지 대상",
                                ["부대", f"{prev}월", f"{base}월", "증감"], _focus_rows(focus_top)))
-            sec("📋 분석 요약", f"{base}월 기준 영업활동 우선순위")
+            hl, hr = st.columns([5, 1.2])
+            with hl:
+                sec("📋 분석 요약", f"{base}월 기준 영업활동 우선순위")
+            show_detail = hr.toggle("🔎 상세보기", value=False, help="부대별 전체 표(매출 현황·급증/급감·분기 분석)를 아래에 펼칩니다")
             st.markdown("<div class='sumgrid'>" + "".join(cards) + "</div>"
                         f"<div class='foot'>금액은 마감 월(~{_closed}월)은 확정, 이후 월은 확정+예정 기준 · "
                         "<span class='dot' style='background:#f06c6c'></span>상위 1/3 "
@@ -414,81 +440,82 @@ if raw_df is not None:
                         unsafe_allow_html=True)
             st.write("")
 
-            # ① 부대별 매출 현황
-            with st.container(border=True):
-                sec(f"① 부대별 매출 현황 ({base}월 기준)")
-                t = pd.DataFrame({'부대명': cum.index, '등급': grade.values, '누적매출': cum.values,
-                                  '월평균': (cum / max(len(upto), 1)).values})
-                pcol, ccol = f"{prev}월(전월)", f"{base}월(당월)"
-                t[pcol] = prv.reindex(cum.index).fillna(0).values
-                t[ccol] = cur.reindex(cum.index).fillna(0).values
-                t['증감률'] = pd.to_numeric(np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan), errors='coerce')
-                t['변동'] = np.select([t['증감률'] >= 50, t['증감률'] <= -50, (t[pcol] == 0) & (t[ccol] > 0)],
-                                    ['📈 급증', '📉 급감', '🆕 신규'], default='')
-                t['추이'] = [list(up.loc[u].values) for u in cum.index]
-                t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
-                st.caption("변동: 전월 대비 ±50% 이상이면 📈 급증 / 📉 급감 표시")
-                t = t[['부대명', '등급', '누적매출', '월평균', pcol, ccol, '증감률', '변동', '추이']]
-                show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'],
-                           height=420, spark='추이')
+            if show_detail:
+                # ① 부대별 매출 현황
+                with st.container(border=True):
+                    sec(f"① 부대별 매출 현황 ({base}월 기준)")
+                    t = pd.DataFrame({'부대명': cum.index, '등급': grade.values, '누적매출': cum.values,
+                                      '월평균': (cum / max(len(upto), 1)).values})
+                    pcol, ccol = f"{prev}월(전월)", f"{base}월(당월)"
+                    t[pcol] = prv.reindex(cum.index).fillna(0).values
+                    t[ccol] = cur.reindex(cum.index).fillna(0).values
+                    t['증감률'] = pd.to_numeric(np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan), errors='coerce')
+                    t['변동'] = np.select([t['증감률'] >= 50, t['증감률'] <= -50, (t[pcol] == 0) & (t[ccol] > 0)],
+                                        ['📈 급증', '📉 급감', '🆕 신규'], default='')
+                    t['추이'] = [list(up.loc[u].values) for u in cum.index]
+                    t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
+                    st.caption("변동: 전월 대비 ±50% 이상이면 📈 급증 / 📉 급감 표시")
+                    t = t[['부대명', '등급', '누적매출', '월평균', pcol, ccol, '증감률', '변동', '추이']]
+                    show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'],
+                               height=420, spark='추이')
 
-            # ② 당월 매출 급증 / 급감 (전월 대비 ±50%)
-            with st.container(border=True):
-                sec(f"② {base}월 매출 급증 / 급감 부대")
-                st.caption(f"{prev}월(전월) 대비 {base}월(당월) 매출이 ±50% 이상 변한 부대"
-                           + (" · 미마감 월은 예정 포함" if base > _closed else ""))
-                sv = t.copy()
-                sv['증감액'] = sv[ccol] - sv[pcol]
-                surge_up = sv[sv['변동'].isin(['📈 급증', '🆕 신규'])].sort_values('증감액', ascending=False)
-                surge_dn = sv[sv['변동'] == '📉 급감'].sort_values('증감액')
-                scols = ['부대명', '등급', pcol, ccol, '증감액', '증감률', '변동']
-                s1, s2 = st.columns(2)
-                with s1:
-                    st.markdown(f"**📈 급증 ({len(surge_up)}개)**")
-                    show_table(surge_up[scols], num_cols=[pcol, ccol, '증감액'], pct_cols=['증감률'])
-                with s2:
-                    st.markdown(f"**📉 급감 ({len(surge_dn)}개)**")
-                    show_table(surge_dn[scols], num_cols=[pcol, ccol, '증감액'], pct_cols=['증감률'])
+                # ② 당월 매출 급증 / 급감 (전월 대비 ±50%)
+                with st.container(border=True):
+                    sec(f"② {base}월 매출 급증 / 급감 부대")
+                    st.caption(f"{prev}월(전월) 대비 {base}월(당월) 매출이 ±50% 이상 변한 부대"
+                               + (" · 미마감 월은 예정 포함" if base > _closed else ""))
+                    sv = t.copy()
+                    sv['증감액'] = sv[ccol] - sv[pcol]
+                    surge_up = sv[sv['변동'].isin(['📈 급증', '🆕 신규'])].sort_values('증감액', ascending=False)
+                    surge_dn = sv[sv['변동'] == '📉 급감'].sort_values('증감액')
+                    scols = ['부대명', '등급', pcol, ccol, '증감액', '증감률', '변동']
+                    s1, s2 = st.columns(2)
+                    with s1:
+                        st.markdown(f"**📈 급증 ({len(surge_up)}개)**")
+                        show_table(surge_up[scols], num_cols=[pcol, ccol, '증감액'], pct_cols=['증감률'])
+                    with s2:
+                        st.markdown(f"**📉 급감 ({len(surge_dn)}개)**")
+                        show_table(surge_dn[scols], num_cols=[pcol, ccol, '증감액'], pct_cols=['증감률'])
 
-            # ③ 분기 분석
-            with st.container(border=True):
-                sec("③ 분기 분석")
-                qmap = {1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]}
-                qs = [q for q, ms in qmap.items() if any(m in months_all for m in ms)]
-                qcol1, qcol2 = st.columns([1, 4])
-                qsel = qcol1.selectbox("분기", qs, index=len(qs) - 1, format_func=lambda q: f"{q}분기")
-                qms = [m for m in qmap[qsel] if m in unit_pivot_raw.columns]
-                pms = [m for m in qmap.get(qsel - 1, []) if m in unit_pivot_raw.columns]
-                plan_note = " · 미마감 월은 예정 포함" if any(m > _closed for m in qms) else ""
-                qcol2.markdown(f"<div style='padding-top:32px;font-size:13px;opacity:.8'>"
-                               f"{qsel}분기({qms[0]}~{qms[-1]}월)를 {'전 분기와 비교' if pms else '단독 분석'}{plan_note}</div>",
-                               unsafe_allow_html=True)
-                QTH, SWING = 10, 50
-                qd = pd.DataFrame({'부대명': unit_pivot_raw.index})
-                qd['등급'] = qd['부대명'].map(grade).fillna(MID)
-                for m in qms:
-                    qd[f'{m}월'] = unit_pivot_raw[m].values
-                qd[f'{qsel}분기 합계'] = unit_pivot_raw[qms].sum(axis=1).values
-                qnum = [f'{m}월' for m in qms] + [f'{qsel}분기 합계']
-                if pms:
-                    qd[f'{qsel - 1}분기 합계'] = unit_pivot_raw[pms].sum(axis=1).values
-                    qd['증감률'] = np.where(qd[f'{qsel - 1}분기 합계'] > 0,
-                                         (qd[f'{qsel}분기 합계'] - qd[f'{qsel - 1}분기 합계']) / qd[f'{qsel - 1}분기 합계'].replace(0, np.nan) * 100, np.nan)
-                    qcols = ['부대명', '등급', f'{qsel - 1}분기 합계'] + qnum + ['증감률']
-                    rise = qd[qd['증감률'] >= QTH].sort_values('증감률', ascending=False)
-                    fall = qd[qd['증감률'] <= -QTH].sort_values('증감률')
-                    r1, r2 = st.columns(2)
-                    with r1:
-                        st.markdown(f"**📈 상승 부대 ({len(rise)}개)** · 전 분기 대비 +{QTH}% 이상")
-                        show_table(rise[qcols], num_cols=[f'{qsel - 1}분기 합계'] + qnum, pct_cols=['증감률'])
-                    with r2:
-                        st.markdown(f"**📉 하락 부대 ({len(fall)}개)** · 전 분기 대비 −{QTH}% 이상")
-                        show_table(fall[qcols], num_cols=[f'{qsel - 1}분기 합계'] + qnum, pct_cols=['증감률'])
-                qavg = qd[[f'{m}월' for m in qms]].mean(axis=1)
-                qd['등락폭'] = np.where(qavg > 0, (qd[[f'{m}월' for m in qms]].max(axis=1) - qd[[f'{m}월' for m in qms]].min(axis=1)) / qavg.replace(0, np.nan) * 100, np.nan)
-                swing = qd[(qd['등락폭'] >= SWING) & (qd[f'{qsel}분기 합계'] > 0)].sort_values('등락폭', ascending=False)
-                st.markdown(f"**🌊 등락폭이 큰 부대 ({len(swing)}개)** · 분기 내 (최고월 − 최저월) ÷ 월평균 ≥ {SWING}% → 발주가 불규칙한 부대")
-                show_table(swing[['부대명', '등급'] + qnum + ['등락폭']], num_cols=qnum, pct_cols=['등락폭'])
+                # ③ 분기 분석
+                with st.container(border=True):
+                    sec("③ 분기 분석")
+                    qmap = {1: [1, 2, 3], 2: [4, 5, 6], 3: [7, 8, 9], 4: [10, 11, 12]}
+                    qs = [q for q, ms in qmap.items() if any(m in months_all for m in ms)]
+                    qcol1, qcol2 = st.columns([1, 4])
+                    qsel = qcol1.selectbox("분기", qs, index=len(qs) - 1, format_func=lambda q: f"{q}분기")
+                    qms = [m for m in qmap[qsel] if m in unit_pivot_raw.columns]
+                    pms = [m for m in qmap.get(qsel - 1, []) if m in unit_pivot_raw.columns]
+                    plan_note = " · 미마감 월은 예정 포함" if any(m > _closed for m in qms) else ""
+                    qcol2.markdown(f"<div style='padding-top:32px;font-size:13px;opacity:.8'>"
+                                   f"{qsel}분기({qms[0]}~{qms[-1]}월)를 {'전 분기와 비교' if pms else '단독 분석'}{plan_note}</div>",
+                                   unsafe_allow_html=True)
+                    QTH, SWING = 10, 50
+                    qd = pd.DataFrame({'부대명': unit_pivot_raw.index})
+                    qd['등급'] = qd['부대명'].map(grade).fillna(MID)
+                    for m in qms:
+                        qd[f'{m}월'] = unit_pivot_raw[m].values
+                    qd[f'{qsel}분기 합계'] = unit_pivot_raw[qms].sum(axis=1).values
+                    qnum = [f'{m}월' for m in qms] + [f'{qsel}분기 합계']
+                    if pms:
+                        qd[f'{qsel - 1}분기 합계'] = unit_pivot_raw[pms].sum(axis=1).values
+                        qd['증감률'] = np.where(qd[f'{qsel - 1}분기 합계'] > 0,
+                                             (qd[f'{qsel}분기 합계'] - qd[f'{qsel - 1}분기 합계']) / qd[f'{qsel - 1}분기 합계'].replace(0, np.nan) * 100, np.nan)
+                        qcols = ['부대명', '등급', f'{qsel - 1}분기 합계'] + qnum + ['증감률']
+                        rise = qd[qd['증감률'] >= QTH].sort_values('증감률', ascending=False)
+                        fall = qd[qd['증감률'] <= -QTH].sort_values('증감률')
+                        r1, r2 = st.columns(2)
+                        with r1:
+                            st.markdown(f"**📈 상승 부대 ({len(rise)}개)** · 전 분기 대비 +{QTH}% 이상")
+                            show_table(rise[qcols], num_cols=[f'{qsel - 1}분기 합계'] + qnum, pct_cols=['증감률'])
+                        with r2:
+                            st.markdown(f"**📉 하락 부대 ({len(fall)}개)** · 전 분기 대비 −{QTH}% 이상")
+                            show_table(fall[qcols], num_cols=[f'{qsel - 1}분기 합계'] + qnum, pct_cols=['증감률'])
+                    qavg = qd[[f'{m}월' for m in qms]].mean(axis=1)
+                    qd['등락폭'] = np.where(qavg > 0, (qd[[f'{m}월' for m in qms]].max(axis=1) - qd[[f'{m}월' for m in qms]].min(axis=1)) / qavg.replace(0, np.nan) * 100, np.nan)
+                    swing = qd[(qd['등락폭'] >= SWING) & (qd[f'{qsel}분기 합계'] > 0)].sort_values('등락폭', ascending=False)
+                    st.markdown(f"**🌊 등락폭이 큰 부대 ({len(swing)}개)** · 분기 내 (최고월 − 최저월) ÷ 월평균 ≥ {SWING}% → 발주가 불규칙한 부대")
+                    show_table(swing[['부대명', '등급'] + qnum + ['등락폭']], num_cols=qnum, pct_cols=['등락폭'])
 
     except Exception as e:
         import traceback
