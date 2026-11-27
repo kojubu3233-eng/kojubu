@@ -509,7 +509,7 @@ if raw_df is not None:
                 t[ccol] = cur.reindex(cum.index).fillna(0).values
                 t['증감률'] = pd.to_numeric(np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan), errors='coerce')
                 t['변동'] = np.select([t['증감률'] >= 50, t['증감률'] <= -50, (t[pcol] == 0) & (t[ccol] > 0)],
-                                    ['급증', '급감', '🆕 신규'], default='')
+                                    ['급증', '급감', '신규'], default='')
                 t['추이'] = [list(up.loc[u].values) for u in cum.index]
                 t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
                 st.caption("변동: 전월 대비 ±50% 이상이면 급증 / 급감 표시")
