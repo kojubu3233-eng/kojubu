@@ -4,7 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import re
 import numpy as np
-from auto.units import UNIT_MASTER, MIN_DELIVERIES, FOCUS_UNITS, normalize_unit, delivery_key, closed_through_month
+from auto.units import UNIT_MASTER, MIN_DELIVERIES, normalize_unit, delivery_key, closed_through_month
 import plotly.io as pio
 from datetime import datetime, timedelta, timezone
 
@@ -316,10 +316,12 @@ if raw_df is not None:
         # ══════════════════════════════════════════
         with tab2:
             months_desc = sorted(months_all, reverse=True)
-            t1, t2 = st.columns([1, 3])
+            t1, t1b, t2 = st.columns([1, 1, 2.6])
             base = t1.selectbox("📅 기준 월", months_desc,
                                 index=next((i for i, m in enumerate(months_desc) if m <= TARGET_M), 0),
                                 format_func=lambda x: f"{x}월")
+            topn = t1b.number_input("🎯 중점 부대 수", min_value=1, max_value=15, value=5, step=1,
+                                    help="기준 월까지의 누적 매출로 매월 자동 선정 (하위 N개 + 꾸준히 높은 상위 N개)")
             prev = base - 1
             t2.markdown(f"<div style='padding-top:34px;font-size:12.5px;color:#8b93a1'>"
                         f"표 행 색상: <span style='background:rgba(229,83,75,.3);padding:1px 6px;border-radius:4px'>상위</span> "
@@ -333,6 +335,15 @@ if raw_df is not None:
                 grade = pd.qcut(cum.rank(method='first'), q=3, labels=[LO, MID, HI]).astype(str)
             else:
                 grade = pd.Series(MID, index=cum.index)
+            # 중점 부대: 기준 월까지의 매출로 자동 선정
+            #  · 집중 관리 = 누적 매출 하위 N (매출 있는 부대 중)
+            #  · 핵심 유지 = 매출이 있었던 달이 80% 이상(꾸준)인 부대 중 누적 매출 상위 N
+            _pos = cum[cum > 0].sort_values()
+            focus_low = list(_pos.index[:topn])
+            _act = (up > 0).sum(axis=1) / max(len(upto), 1)
+            _steady = cum[(_act >= 0.8) & (cum > 0)].sort_values(ascending=False)
+            focus_top = [u for u in _steady.index if u not in focus_low][:topn]
+            FOCUS_UNITS = focus_low + focus_top
             cur = unit_pivot_raw.get(base, pd.Series(0, index=unit_pivot_raw.index))
             prv = unit_pivot_raw.get(prev, pd.Series(0, index=unit_pivot_raw.index))
 
@@ -387,14 +398,19 @@ if raw_df is not None:
                                f"{prev}월 매출은 있으나 {base}월 {'예정' if base > _closed else '매출'}이 없거나 50% 미만 · 발주 확인 필요",
                                ["부대", f"{prev}월", f"{base}월"],
                                [[_name(u), man(x), "<span class='neg'>없음</span>" if y == 0 else f"{man(y)} ({_pct(x, y)})"] for u, x, y in nx]))
-            fr = [u for u in FOCUS_UNITS if u in unit_pivot_raw.index]
-            cards.append(_card("🎯 중점 부대 현황", f"{prev}월 → {base}월 · 누적 기준 등급 색상", ["부대", f"{prev}월", f"{base}월", "증감"],
-                               [[_name(u), man(_v(u, prev)), man(_v(u, base)), _pct(_v(u, prev), _v(u, base))] for u in fr]))
+            def _focus_rows(lst):
+                return [[_name(u), man(_v(u, prev)), man(_v(u, base)), _pct(_v(u, prev), _v(u, base))] for u in lst]
+
+
+            cards.append(_card("🎯 집중 관리 · 매출 하위 부대", f"1–{base}월 누적 매출이 가장 낮은 {len(focus_low)}곳 · 매출 회복 영업 대상",
+                               ["부대", f"{prev}월", f"{base}월", "증감"], _focus_rows(focus_low)))
+            cards.append(_card("⭐ 핵심 유지 · 꾸준히 높은 부대", f"매출 발생 월 80% 이상 + 누적 상위 {len(focus_top)}곳 · 이탈 방지 대상",
+                               ["부대", f"{prev}월", f"{base}월", "증감"], _focus_rows(focus_top)))
             sec("📋 분석 요약", f"{base}월 기준 영업활동 우선순위")
             st.markdown("<div class='sumgrid'>" + "".join(cards) + "</div>"
                         f"<div class='foot'>금액은 마감 월(~{_closed}월)은 확정, 이후 월은 확정+예정 기준 · "
                         "<span class='dot' style='background:#f06c6c'></span>상위 1/3 "
-                        "<span class='dot' style='background:#5b9cf5'></span>하위 1/3 · <span class='tag'>중점</span> 중점 부대</div>",
+                        "<span class='dot' style='background:#5b9cf5'></span>하위 1/3 · <span class='tag'>중점</span> 기준 월 누적으로 매월 자동 선정(하위 N·꾸준히 높은 N)</div>",
                         unsafe_allow_html=True)
             st.write("")
 
