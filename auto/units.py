@@ -64,3 +64,6 @@ def closed_through_month(override=None) -> int:
     if override not in (None, ""):
         return int(override)
     return datetime.now(KST).month - 1
+
+# 중점 부대 (SMS 중점 관리 대상)
+FOCUS_UNITS = ["2급양대", "7급양대", "8급양대", "2해병대", "11사단", "12사단", "수방사"]
