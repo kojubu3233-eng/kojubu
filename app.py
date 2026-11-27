@@ -458,19 +458,18 @@ if raw_df is not None:
                     [[_name(u)] + [man(_v(u, m)) for m in _qm] + [f"{r:.0f}%"] for u, r in swl],
                     _full([[u] + [_v(u, m) for m in _qm] + [r] for u, r in swl], colss), colss[1:-1], ['등락폭'])
             # 중점 부대
-            colsf = ['부대명', '누적매출', '월평균', f'{prev}월', f'{base}월', '증감률', '추이']
+            colsf = ['부대명', '누적매출', '월평균', f'{prev}월', f'{base}월', '증감률']
 
             def _frows(lst):
-                return [[u, float(cum[u]), float(cum[u]) / max(len(upto), 1), _v(u, prev), _v(u, base), _rate(_v(u, prev), _v(u, base)),
-                         list(up.loc[u].values)] for u in lst]
+                return [[u, float(cum[u]), float(cum[u]) / max(len(upto), 1), _v(u, prev), _v(u, base), _rate(_v(u, prev), _v(u, base))] for u in lst]
             low_all = list(_pos.index)
             top_all = list(_steady.index)
             add("집중 관리 · 매출 하위 부대", f"1–{base}월 누적 매출이 가장 낮은 {len(focus_low)}곳 · 매출 회복 영업 대상", ["부대", f"{prev}월", f"{base}월", "증감"],
                 [[_name(u), man(_v(u, prev)), man(_v(u, base)), _pct(_v(u, prev), _v(u, base))] for u in focus_low],
-                _full(_frows(low_all), colsf), colsf[1:5], ['증감률'], '추이')
+                _full(_frows(low_all), colsf), colsf[1:5], ['증감률'])
             add("핵심 유지 · 꾸준히 높은 부대", f"매출 발생 월 80% 이상 + 누적 상위 {len(focus_top)}곳 · 이탈 방지 대상", ["부대", f"{prev}월", f"{base}월", "증감"],
                 [[_name(u), man(_v(u, prev)), man(_v(u, base)), _pct(_v(u, prev), _v(u, base))] for u in focus_top],
-                _full(_frows(top_all), colsf), colsf[1:5], ['증감률'], '추이')
+                _full(_frows(top_all), colsf), colsf[1:5], ['증감률'])
             for s_ in specs:
                 s_['rows'] = s_['rows'][:7]
                 if s_['title'].startswith(("집중", "핵심")):
@@ -482,7 +481,7 @@ if raw_df is not None:
                 sp = specs[i]
                 st.markdown(f"**{sp['title']}** · {sp['desc']}")
                 st.caption(f"전체 {len(sp['full'])}곳 · 열 제목을 클릭하면 정렬됩니다")
-                show_table(sp['full'], num_cols=sp['nums'], pct_cols=sp['pcts'], height=min(460, 38 + 35 * len(sp['full'])), spark=sp['spark'])
+                show_table(sp['full'], num_cols=sp['nums'], pct_cols=sp['pcts'], height=min(460, 38 + 35 * len(sp['full'])))
 
 
             hl, _hr = st.columns([5, 1])
@@ -501,7 +500,7 @@ if raw_df is not None:
                         "<span class='dot' style='background:#5b9cf5'></span>하위 1/3 · <span class='tag'>중점</span> 기준 월 누적으로 매월 자동 선정(하위 N·꾸준히 높은 N)</div>",
                         unsafe_allow_html=True)
 
-            with st.expander("전체 부대 매출표 (누적·월평균·추이)"):
+            with st.expander("전체 부대 매출표 (누적·월평균·전월·당월)"):
                 t = pd.DataFrame({'부대명': cum.index, '등급': grade.values, '누적매출': cum.values,
                                   '월평균': (cum / max(len(upto), 1)).values})
                 pcol, ccol = f"{prev}월(전월)", f"{base}월(당월)"
@@ -510,11 +509,10 @@ if raw_df is not None:
                 t['증감률'] = pd.to_numeric(np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan), errors='coerce')
                 t['변동'] = np.select([t['증감률'] >= 50, t['증감률'] <= -50, (t[pcol] == 0) & (t[ccol] > 0)],
                                     ['급증', '급감', '신규'], default='')
-                t['추이'] = [list(up.loc[u].values) for u in cum.index]
                 t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
                 st.caption("변동: 전월 대비 ±50% 이상이면 급증 / 급감 표시")
-                t = t[['부대명', '등급', '누적매출', '월평균', pcol, ccol, '증감률', '변동', '추이']]
-                show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'], height=420, spark='추이')
+                t = t[['부대명', '등급', '누적매출', '월평균', pcol, ccol, '증감률', '변동']]
+                show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'], height=420)
 
     except Exception as e:
         import traceback
