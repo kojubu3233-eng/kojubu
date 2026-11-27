@@ -61,16 +61,16 @@ def sec(title, sub=""):
                 unsafe_allow_html=True)
 
 
-st.title("📊 연간 매출 분석 대시보드")
+st.title("연간 매출 분석 대시보드")
 
-st.sidebar.header("📁 데이터 연동 상태")
+st.sidebar.header("데이터 연동 상태")
 
 @st.cache_data(ttl=3600)
 def load_excel_fallback():
     try:
         return pd.read_excel("data.xlsx", engine='openpyxl')
     except Exception as e:
-        st.error(f"⚠️ 'data.xlsx' 파일을 읽을 수 없습니다: {e}")
+        st.error(f"'data.xlsx' 파일을 읽을 수 없습니다: {e}")
         return None
 
 def load_data():
@@ -83,16 +83,16 @@ def load_data():
         try:
             from auto.sheet_loader import load_from_sheet
             d, closed = load_from_sheet()
-            st.sidebar.success(f"✅ 자동화시스템 자동 연동 중 ({len(d):,}건)")
-            if st.sidebar.button("🔄 지금 새로고침"):
+            st.sidebar.success(f"자동화시스템 자동 연동 중 ({len(d):,}건)")
+            if st.sidebar.button("지금 새로고침"):
                 st.cache_data.clear()
                 st.rerun()
             return d, closed
         except Exception as e:
-            st.sidebar.warning(f"⚠️ 자동화시스템 연동 실패 → data.xlsx 사용\n\n{e}")
+            st.sidebar.warning(f"자동화시스템 연동 실패 → data.xlsx 사용\n\n{e}")
     else:
-        st.sidebar.info("ℹ️ 자동화시스템 미설정 → data.xlsx 사용")
-    st.sidebar.success("✅ 깃허브 data.xlsx 연동 중")
+        st.sidebar.info("ℹ자동화시스템 미설정 → data.xlsx 사용")
+    st.sidebar.success("깃허브 data.xlsx 연동 중")
     return load_excel_fallback(), None
 
 raw_df, sheet_closed = load_data()
@@ -105,7 +105,7 @@ if raw_df is not None:
             df.columns = list(df.columns[:7])
             df.columns = ['납품일', '부대명', '구분', '품목', '수량', '단가(Vat별도)', '매출']
         else:
-            st.error(f"⚠️ 열 개수 부족 (현재 {len(df.columns)}개, 최소 7개 필요)")
+            st.error(f"열 개수 부족 (현재 {len(df.columns)}개, 최소 7개 필요)")
             st.stop()
 
         for col in ['납품일', '부대명', '구분', '품목']:
@@ -148,8 +148,8 @@ if raw_df is not None:
         few_delivery = delivery_cnt[delivery_cnt < MIN_DELIVERIES]
         _closed = sheet_closed if sheet_closed is not None else closed_through_month()
         st.sidebar.markdown("---")
-        st.sidebar.caption(f"🗓️ {_closed}월까지(마감): 확정 매출 · {_closed + 1}월부터(미마감): 확정+예정")
-        with st.sidebar.expander(f"📌 부대별 분석 대상 {len(valid_unit_names)}개 부대"):
+        st.sidebar.caption(f"{_closed}월까지(마감): 확정 매출 · {_closed + 1}월부터(미마감): 확정+예정")
+        with st.sidebar.expander(f"부대별 분석 대상 {len(valid_unit_names)}개 부대"):
             st.caption(
             f"- 합계 매출에만 포함(부대별정보에 없음): "
             + (", ".join(f"{k}({v:,.0f}원)" for k, v in not_master.items()) or "없음") + "\n"
@@ -161,7 +161,7 @@ if raw_df is not None:
         NOW_M = datetime.now(KST).month
         TARGET_M = min(NOW_M + 1, 12)   # 기준(당월) = 다음 달 예정월 (예: 11월 현재 → 12월)
         months_all = sorted(int(m) for m in df['월'].unique())
-        HI, MID, LO = '🔴 상위', '⚪ 중위', '🔵 하위'
+        HI, MID, LO = '상위', '중위', '하위'
         GRADE_BG = {HI: 'background-color: rgba(229,83,75,0.22)', LO: 'background-color: rgba(59,142,234,0.22)'}
 
 
@@ -198,7 +198,7 @@ if raw_df is not None:
         unit_pivot_raw = unit_pivot_raw.reindex(columns=months_all, fill_value=0)
         unit_pivot_raw.columns = [int(c) for c in unit_pivot_raw.columns]
 
-        tab1, tab2 = st.tabs(["📊 매출 현황", "🎯 영업 전략 인사이트"])
+        tab1, tab2 = st.tabs(["매출 현황", "영업 전략 인사이트"])
 
         # ══════════════════════════════════════════
         # TAB 1 : 매출 현황
@@ -232,7 +232,7 @@ if raw_df is not None:
 
             # ── 품목 순위 (상위 10 / 하위 10 한 줄) ──
             with st.container(border=True):
-                sec("🏆 품목 매출 순위")
+                sec("품목 매출 순위")
                 st.caption("막대를 클릭하면 아래에 해당 품목의 월별 매출이 표시됩니다.")
                 items = df.groupby(['구분', '품목'])['매출'].sum().reset_index()
                 items = items[items['매출'] > 0]
@@ -261,13 +261,13 @@ if raw_df is not None:
 
                 cL, cR = st.columns(2)
                 with cL:
-                    item_chart(items.nlargest(10, '매출').sort_values('매출'), RED, 'top10', '🔴 상위 10개 품목')
+                    item_chart(items.nlargest(10, '매출').sort_values('매출'), RED, 'top10', '상위 10개 품목')
                 with cR:
-                    item_chart(items.nsmallest(10, '매출').sort_values('매출', ascending=False), BLUE, 'bottom10', '🔵 하위 10개 품목')
+                    item_chart(items.nsmallest(10, '매출').sort_values('매출', ascending=False), BLUE, 'bottom10', '하위 10개 품목')
 
             # ── 구분별 카드 ──
             with st.container(border=True):
-                sec("🗂️ 구분별 매출")
+                sec("구분별 매출")
                 cat_sum = df.groupby('구분')['매출'].sum().sort_values(ascending=False)
                 cards = "".join(
                     f"<div style='border:1px solid rgba(128,128,128,.35);border-radius:8px;padding:10px 12px;'>"
@@ -295,7 +295,7 @@ if raw_df is not None:
                         show_table(dd, num_cols=['수량', '매출'])
 
             # ── 상세 검색 ──
-            with st.expander("🔍 전체 데이터 상세 검색"):
+            with st.expander("전체 데이터 상세 검색"):
                 f1, f2, f3, f4 = st.columns(4)
                 fu = f1.multiselect("부대명", safe_sorted(df['부대명'].unique()))
                 fc = f2.multiselect("구분", safe_sorted(df['구분'].unique()))
@@ -309,7 +309,7 @@ if raw_df is not None:
                 q = q[['납품일', '부대명', '구분', '품목', '수량', '단가(Vat별도)', '매출']]
                 st.caption(f"{len(q):,}건 · 합계 {q['매출'].sum():,.0f}원")
                 show_table(q, num_cols=['수량', '단가(Vat별도)', '매출'], height=400)
-                st.download_button("📥 검색 결과 다운로드", q.to_csv(index=False).encode('utf-8-sig'),
+                st.download_button("검색 결과 다운로드", q.to_csv(index=False).encode('utf-8-sig'),
                                    file_name='매출_상세검색.csv', mime='text/csv')
 
         # ══════════════════════════════════════════
@@ -318,10 +318,10 @@ if raw_df is not None:
         with tab2:
             months_desc = sorted(months_all, reverse=True)
             t1, t1b, t2 = st.columns([1, 1, 2.6])
-            base = t1.selectbox("📅 기준 월", months_desc,
+            base = t1.selectbox("기준 월", months_desc,
                                 index=next((i for i, m in enumerate(months_desc) if m <= TARGET_M), 0),
                                 format_func=lambda x: f"{x}월")
-            topn = t1b.number_input("🎯 중점 부대 수", min_value=1, max_value=15, value=5, step=1,
+            topn = t1b.number_input("중점 부대 수", min_value=1, max_value=15, value=5, step=1,
                                     help="기준 월까지의 누적 매출로 매월 자동 선정 (하위 N개 + 꾸준히 높은 상위 N개)")
             prev = base - 1
             t2.markdown(f"<div style='padding-top:34px;font-size:12.5px;color:#8b93a1'>"
@@ -398,10 +398,10 @@ if raw_df is not None:
                 cols3 = ['부대명', f'{a_}월', f'{b_}월', f'{c_}월', '증감률']
                 dn = sorted([x for x in seq if x[1] > x[2] > x[3] and x[1] > 0], key=lambda x: (x[3] - x[1]) / x[1])
                 upx = sorted([x for x in seq if 0 < x[1] < x[2] < x[3]], key=lambda x: -(x[3] - x[1]) / x[1])
-                add("📉 3개월 연속 하락 부대", f"{a_}월 → {b_}월 → {c_}월 매출이 계속 감소 · 우선 방문 대상", ["부대", "매출 추이", "증감"],
+                add("3개월 연속 하락 부대", f"{a_}월 → {b_}월 → {c_}월 매출이 계속 감소 · 우선 방문 대상", ["부대", "매출 추이", "증감"],
                     [[_name(u), f"{man(x)} → {man(y)} → {man(z)}", _pct(x, z)] for u, x, y, z in dn],
                     _full([[u, x, y, z, _rate(x, z)] for u, x, y, z in dn], cols3), cols3[1:4], ['증감률'])
-                add("📈 3개월 연속 상승 부대", f"{a_}월 → {b_}월 → {c_}월 매출이 계속 증가 · 품목 확대 제안 대상", ["부대", "매출 추이", "증감"],
+                add("3개월 연속 상승 부대", f"{a_}월 → {b_}월 → {c_}월 매출이 계속 증가 · 품목 확대 제안 대상", ["부대", "매출 추이", "증감"],
                     [[_name(u), f"{man(x)} → {man(y)} → {man(z)}", _pct(x, z)] for u, x, y, z in upx],
                     _full([[u, x, y, z, _rate(x, z)] for u, x, y, z in upx], cols3), cols3[1:4], ['증감률'])
             if prev - 1 in unit_pivot_raw.columns and prev in unit_pivot_raw.columns:
@@ -409,22 +409,22 @@ if raw_df is not None:
                 colsd = ['부대명', f'{prev - 1}월', f'{prev}월', '증감액', '증감률']
                 dd_ = sorted([x for x in pr if x[2] < x[1]], key=lambda x: x[2] - x[1])
                 uu_ = sorted([x for x in pr if x[2] > x[1]], key=lambda x: x[1] - x[2])
-                add("🔻 전월 대비 감소 상위", f"{prev - 1}월 → {prev}월 감소액이 큰 순", ["부대", "매출", "감소"],
+                add("전월 대비 감소 상위", f"{prev - 1}월 → {prev}월 감소액이 큰 순", ["부대", "매출", "감소"],
                     [[_name(u), f"{man(x)} → {man(y)}", f"<span class='neg'>-{man(x - y)}</span> ({_pct(x, y)})"] for u, x, y in dd_],
                     _full([[u, x, y, y - x, _rate(x, y)] for u, x, y in dd_], colsd), colsd[1:4], ['증감률'])
-                add("🔺 전월 대비 상승 상위", f"{prev - 1}월 → {prev}월 증가액이 큰 순 · 추가 제안 대상", ["부대", "매출", "증가"],
+                add("전월 대비 상승 상위", f"{prev - 1}월 → {prev}월 증가액이 큰 순 · 추가 제안 대상", ["부대", "매출", "증가"],
                     [[_name(u), f"{man(x)} → {man(y)}", f"<span class='pos'>+{man(y - x)}</span> ({_pct(x, y)})"] for u, x, y in uu_],
                     _full([[u, x, y, y - x, _rate(x, y)] for u, x, y in uu_], colsd), colsd[1:4], ['증감률'])
             nxl = sorted([(u, _v(u, prev), _v(u, base)) for u in units_all if _v(u, prev) > 0 and _v(u, base) < _v(u, prev) * 0.5],
                          key=lambda x: -x[1])
             lbl = '예정' if base > _closed else '매출'
             colsn = ['부대명', f'{prev}월', f'{base}월', '증감률']
-            add(f"⚠️ {base}월 {lbl} 없음·급감", f"{prev}월 매출은 있으나 {base}월 {lbl}이 없거나 50% 미만 · 발주 확인 필요", ["부대", f"{prev}월", f"{base}월"],
+            add(f"{base}월 {lbl} 없음·급감", f"{prev}월 매출은 있으나 {base}월 {lbl}이 없거나 50% 미만 · 발주 확인 필요", ["부대", f"{prev}월", f"{base}월"],
                 [[_name(u), man(x), "<span class='neg'>없음</span>" if y == 0 else f"{man(y)} ({_pct(x, y)})"] for u, x, y in nxl],
                 _full([[u, x, y, _rate(x, y)] for u, x, y in nxl], colsn), colsn[1:3], ['증감률'])
             nxu = sorted([(u, _v(u, prev), _v(u, base)) for u in units_all
                           if _v(u, base) > 0 and (_v(u, prev) == 0 or _v(u, base) >= _v(u, prev) * 1.5)], key=lambda x: -(x[2] - x[1]))
-            add(f"🔥 {base}월 {lbl} 급증", f"{prev}월 대비 {base}월 {lbl}이 50% 이상 증가 · 신규 포함", ["부대", f"{prev}월", f"{base}월"],
+            add(f"{base}월 {lbl} 급증", f"{prev}월 대비 {base}월 {lbl}이 50% 이상 증가 · 신규 포함", ["부대", f"{prev}월", f"{base}월"],
                 [[_name(u), man(x), f"{man(y)} ({_pct(x, y)})"] for u, x, y in nxu],
                 _full([[u, x, y, _rate(x, y)] for u, x, y in nxu], colsn), colsn[1:3], ['증감률'])
             # 분기 (기준 월이 속한 분기 vs 전 분기)
@@ -444,9 +444,9 @@ if raw_df is not None:
                 def _qrows(lst):
                     return [[u, x, y] + [_v(u, m) for m in _qm] + [r] for u, x, y, r in lst]
                 qnum = colsq[1:-1]
-                add("🚀 분기 상승 상위", f"{qnote} 증가율 순", ["부대", "분기 합계", "증감"],
+                add("분기 상승 상위", f"{qnote} 증가율 순", ["부대", "분기 합계", "증감"],
                     [[_name(u), f"{man(x)} → {man(y)}", _pct(x, y)] for u, x, y, _ in qup], _full(_qrows(qup), colsq), qnum, ['증감률'])
-                add("🧊 분기 하락 상위", f"{qnote} 감소율 순 · 원인 점검 대상", ["부대", "분기 합계", "증감"],
+                add("분기 하락 상위", f"{qnote} 감소율 순 · 원인 점검 대상", ["부대", "분기 합계", "증감"],
                     [[_name(u), f"{man(x)} → {man(y)}", _pct(x, y)] for u, x, y, _ in qdn], _full(_qrows(qdn), colsq), qnum, ['증감률'])
             if len(_qm) >= 2:
                 qv = unit_pivot_raw[_qm]
@@ -454,7 +454,7 @@ if raw_df is not None:
                 sw = ((qv.max(axis=1) - qv.min(axis=1)) / avg.replace(0, np.nan) * 100)
                 swl = sorted([(u, float(sw[u])) for u in units_all if avg[u] > 0 and sw[u] >= 50], key=lambda x: -x[1])
                 colss = ['부대명'] + [f'{m}월' for m in _qm] + ['등락폭']
-                add("🌊 등락폭이 큰 부대", f"{_qn}분기 내 (최고월−최저월)÷월평균 50% 이상 · 발주가 불규칙", ["부대"] + [f"{m}월" for m in _qm] + ["등락폭"],
+                add("등락폭이 큰 부대", f"{_qn}분기 내 (최고월−최저월)÷월평균 50% 이상 · 발주가 불규칙", ["부대"] + [f"{m}월" for m in _qm] + ["등락폭"],
                     [[_name(u)] + [man(_v(u, m)) for m in _qm] + [f"{r:.0f}%"] for u, r in swl],
                     _full([[u] + [_v(u, m) for m in _qm] + [r] for u, r in swl], colss), colss[1:-1], ['등락폭'])
             # 중점 부대
@@ -465,15 +465,15 @@ if raw_df is not None:
                          list(up.loc[u].values)] for u in lst]
             low_all = list(_pos.index)
             top_all = list(_steady.index)
-            add("🎯 집중 관리 · 매출 하위 부대", f"1–{base}월 누적 매출이 가장 낮은 {len(focus_low)}곳 · 매출 회복 영업 대상", ["부대", f"{prev}월", f"{base}월", "증감"],
+            add("집중 관리 · 매출 하위 부대", f"1–{base}월 누적 매출이 가장 낮은 {len(focus_low)}곳 · 매출 회복 영업 대상", ["부대", f"{prev}월", f"{base}월", "증감"],
                 [[_name(u), man(_v(u, prev)), man(_v(u, base)), _pct(_v(u, prev), _v(u, base))] for u in focus_low],
                 _full(_frows(low_all), colsf), colsf[1:5], ['증감률'], '추이')
-            add("⭐ 핵심 유지 · 꾸준히 높은 부대", f"매출 발생 월 80% 이상 + 누적 상위 {len(focus_top)}곳 · 이탈 방지 대상", ["부대", f"{prev}월", f"{base}월", "증감"],
+            add("핵심 유지 · 꾸준히 높은 부대", f"매출 발생 월 80% 이상 + 누적 상위 {len(focus_top)}곳 · 이탈 방지 대상", ["부대", f"{prev}월", f"{base}월", "증감"],
                 [[_name(u), man(_v(u, prev)), man(_v(u, base)), _pct(_v(u, prev), _v(u, base))] for u in focus_top],
                 _full(_frows(top_all), colsf), colsf[1:5], ['증감률'], '추이')
             for s_ in specs:
                 s_['rows'] = s_['rows'][:7]
-                if s_['title'].startswith(("🎯", "⭐")):
+                if s_['title'].startswith(("집중", "핵심")):
                     s_['rows'] = s_['rows'][:topn]
 
 
@@ -487,21 +487,21 @@ if raw_df is not None:
 
             hl, _hr = st.columns([5, 1])
             with hl:
-                sec("📋 분석 요약", f"{base}월 기준 영업활동 우선순위 · 카드별 '상세보기'로 전체 부대 확인")
+                sec("분석 요약", f"{base}월 기준 영업활동 우선순위 · 카드별 '상세보기'로 전체 부대 확인")
             for r0 in range(0, len(specs), 3):
                 for col, i in zip(st.columns(3), range(r0, min(r0 + 3, len(specs)))):
                     sp = specs[i]
                     with col:
                         with st.container(border=True):
                             st.markdown(_card_html(sp['title'], sp['desc'], sp['head'], sp['rows']), unsafe_allow_html=True)
-                            if st.button(f"🔎 상세보기 ({len(sp['full'])})", key=f"detail_{i}", width='stretch'):
+                            if st.button(f"상세보기 ({len(sp['full'])})", key=f"detail_{i}", width='stretch'):
                                 _detail(i)
             st.markdown(f"<div class='foot'>금액은 마감 월(~{_closed}월)은 확정, 이후 월은 확정+예정 기준 · "
                         "<span class='dot' style='background:#f06c6c'></span>상위 1/3 "
                         "<span class='dot' style='background:#5b9cf5'></span>하위 1/3 · <span class='tag'>중점</span> 기준 월 누적으로 매월 자동 선정(하위 N·꾸준히 높은 N)</div>",
                         unsafe_allow_html=True)
 
-            with st.expander("📑 전체 부대 매출표 (누적·월평균·추이)"):
+            with st.expander("전체 부대 매출표 (누적·월평균·추이)"):
                 t = pd.DataFrame({'부대명': cum.index, '등급': grade.values, '누적매출': cum.values,
                                   '월평균': (cum / max(len(upto), 1)).values})
                 pcol, ccol = f"{prev}월(전월)", f"{base}월(당월)"
@@ -509,14 +509,14 @@ if raw_df is not None:
                 t[ccol] = cur.reindex(cum.index).fillna(0).values
                 t['증감률'] = pd.to_numeric(np.where(t[pcol] > 0, (t[ccol] - t[pcol]) / t[pcol].replace(0, np.nan) * 100, np.nan), errors='coerce')
                 t['변동'] = np.select([t['증감률'] >= 50, t['증감률'] <= -50, (t[pcol] == 0) & (t[ccol] > 0)],
-                                    ['📈 급증', '📉 급감', '🆕 신규'], default='')
+                                    ['급증', '급감', '🆕 신규'], default='')
                 t['추이'] = [list(up.loc[u].values) for u in cum.index]
                 t = t[t['누적매출'] > 0].sort_values('누적매출', ascending=False)
-                st.caption("변동: 전월 대비 ±50% 이상이면 📈 급증 / 📉 급감 표시")
+                st.caption("변동: 전월 대비 ±50% 이상이면 급증 / 급감 표시")
                 t = t[['부대명', '등급', '누적매출', '월평균', pcol, ccol, '증감률', '변동', '추이']]
                 show_table(t, num_cols=['누적매출', '월평균', pcol, ccol], pct_cols=['증감률'], height=420, spark='추이')
 
     except Exception as e:
         import traceback
-        st.error(f"🚨 오류 발생: {e}")
+        st.error(f"오류 발생: {e}")
         st.code(traceback.format_exc())
